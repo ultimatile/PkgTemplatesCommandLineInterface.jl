@@ -42,4 +42,12 @@ include("plugin_info_command.jl")
 # Include CompletionCommand module
 include("completion_command.jl")
 
+# Include CLI module
+include("cli.jl")
+
+# Export CLI functions
+export create_argument_parser
+export add_dynamic_plugin_options!
+export get_version
+
 end
