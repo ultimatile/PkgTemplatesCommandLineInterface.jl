@@ -1,23 +1,60 @@
-# fish shell completion for jtc
+# Fish completion for jtc (JuliaPkgTemplatesCLI)
 
-complete -c jtc -f -a "create config plugin-info completion"
+# Main command completions
+complete -c jtc -f
 
-# create subcommand
-complete -c jtc -n "__fish_seen_subcommand_from create" -l author -d "Package author name"
-complete -c jtc -n "__fish_seen_subcommand_from create" -l user -d "GitHub username"
-complete -c jtc -n "__fish_seen_subcommand_from create" -l dry-run -d "Show what would be done"
-complete -c jtc -n "__fish_seen_subcommand_from create" -l with-mise -d "Generate mise configuration"
+# Subcommands
+complete -c jtc -n "__fish_use_subcommand" -a "create" -d "Create a new Julia package"
+complete -c jtc -n "__fish_use_subcommand" -a "config" -d "Configuration management"
+complete -c jtc -n "__fish_use_subcommand" -a "plugin-info" -d "Show information about plugins"
+complete -c jtc -n "__fish_use_subcommand" -a "completion" -d "Generate shell completion script"
 
-# Dynamic plugin options
-{{#plugins}}
-complete -c jtc -n "__fish_seen_subcommand_from create" -l {{name}} -d "{{name}} plugin options"
-{{/plugins}}
+# Global options
+complete -c jtc -l help -d "Show help message"
+complete -c jtc -l version -d "Show version"
 
-# config subcommand
-complete -c jtc -n "__fish_seen_subcommand_from config" -f -a "show set"
+# create command options
+complete -c jtc -n "__fish_seen_subcommand_from create" -s a -l author -d "Author name(s) for the package (supports multiple authors)"
+complete -c jtc -n "__fish_seen_subcommand_from create" -s u -l user -d "Git hosting username"
+complete -c jtc -n "__fish_seen_subcommand_from create" -s m -l mail -d "Email address for package metadata"
+complete -c jtc -n "__fish_seen_subcommand_from create" -s o -l output-dir -d "Output directory" -F
+complete -c jtc -n "__fish_seen_subcommand_from create" -l license -d "License type" -a "{{licenses}}"
+complete -c jtc -n "__fish_seen_subcommand_from create" -l julia-version -d "Julia version constraint (e.g., 1.10.9)"
+complete -c jtc -n "__fish_seen_subcommand_from create" -l config-file -d "Path to custom configuration file" -F
+complete -c jtc -n "__fish_seen_subcommand_from create" -s n -l dry-run -d "Show what would be executed without running"
+complete -c jtc -n "__fish_seen_subcommand_from create" -s v -l verbose -d "Enable verbose output for debugging"
+complete -c jtc -n "__fish_seen_subcommand_from create" -l mise-filename-base -d "Base name for mise config file"
+complete -c jtc -n "__fish_seen_subcommand_from create" -l with-mise -d "Enable mise task file generation"
+complete -c jtc -n "__fish_seen_subcommand_from create" -l no-mise -d "Disable mise task file generation"
 
-# plugin-info subcommand
-complete -c jtc -n "__fish_seen_subcommand_from plugin-info" -f -a "{{#plugins}}{{name}} {{/plugins}}"
+# Plugin options for create command (dynamically generated)
+{{#plugin_options}}
+{{.}}
+{{/plugin_options}}
 
-# completion subcommand
-complete -c jtc -n "__fish_seen_subcommand_from completion" -f -a "fish"
+# config command and subcommands (only when no config options are specified)
+# Note: removed 'authors' from option detection as it's been unified under 'author'
+complete -c jtc -n "__fish_seen_subcommand_from config; and not __fish_contains_opt author user mail license julia-version mise-filename-base with-mise no-mise config-file git tests formatter project-file github-actions codecov documenter tagbot compat-helper" -a "show" -d "Display current configuration values"
+complete -c jtc -n "__fish_seen_subcommand_from config; and not __fish_contains_opt author user mail license julia-version mise-filename-base with-mise no-mise config-file git tests formatter project-file github-actions codecov documenter tagbot compat-helper" -a "set" -d "Set configuration values"
+
+# config command options (for direct invocation and set subcommand)
+complete -c jtc -n "__fish_seen_subcommand_from config" -l author -d "Set default author(s) (supports multiple authors)"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l user -d "Set default user"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l mail -d "Set default mail"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l license -d "Set default license" -a "{{licenses}}"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l julia-version -d "Set default Julia version constraint (e.g., 1.10.9)"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l mise-filename-base -d "Set default base name for mise config file"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l with-mise -d "Set default mise task file generation to enabled"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l no-mise -d "Set default mise task file generation to disabled"
+complete -c jtc -n "__fish_seen_subcommand_from config" -l config-file -d "Path to custom configuration file" -F
+
+# Plugin options for config command (dynamically generated)
+{{#config_plugin_options}}
+{{.}}
+{{/config_plugin_options}}
+
+# plugin-info command - complete with available plugin names (dynamically generated)
+complete -c jtc -n "__fish_seen_subcommand_from plugin-info" -a "{{#plugins}}{{name}} {{/plugins}}" -d "Plugin name"
+
+# completion command options
+complete -c jtc -n "__fish_seen_subcommand_from completion" -l shell -d "Shell type" -a "fish"
