@@ -12,5 +12,8 @@ using Aqua
             deps_compat=(check_extras=false,)
         )
     end
-    # Write your tests here.
+
+    # Include test files
+    include("test_project_setup.jl")
+    include("test_errors.jl")
 end
