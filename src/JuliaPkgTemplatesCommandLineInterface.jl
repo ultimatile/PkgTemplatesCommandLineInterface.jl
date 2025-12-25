@@ -21,4 +21,7 @@ include("types.jl")
 # Include ConfigManager module
 include("config_manager.jl")
 
+# Include PluginDiscovery module
+include("plugin_discovery.jl")
+
 end
