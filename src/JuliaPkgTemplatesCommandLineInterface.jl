@@ -33,4 +33,10 @@ include("package_generator.jl")
 # Include CreateCommand module
 include("create_command.jl")
 
+# Include ConfigCommand module
+include("config_command.jl")
+
+# Include PluginInfoCommand module
+include("plugin_info_command.jl")
+
 end

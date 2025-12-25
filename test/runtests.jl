@@ -23,4 +23,5 @@ using Aqua
     include("test_package_generator.jl")
     include("test_create_command.jl")
     include("test_config_command.jl")
+    include("test_plugin_info_command.jl")
 end
