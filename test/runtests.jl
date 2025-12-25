@@ -24,4 +24,5 @@ using Aqua
     include("test_create_command.jl")
     include("test_config_command.jl")
     include("test_plugin_info_command.jl")
+    include("test_completion_command.jl")
 end

@@ -39,4 +39,7 @@ include("config_command.jl")
 # Include PluginInfoCommand module
 include("plugin_info_command.jl")
 
+# Include CompletionCommand module
+include("completion_command.jl")
+
 end
