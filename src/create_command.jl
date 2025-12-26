@@ -150,8 +150,15 @@ function execute(args::Dict{String, Any})::CommandResult
             )
         end
 
+        # Transform author (singular) to authors (plural array) for PkgTemplates.jl
+        if haskey(merged_options, "author") && !haskey(merged_options, "authors")
+            author = merged_options["author"]
+            merged_options["authors"] = author == "" ? String[] : [author]
+        end
+
         # Create package
-        PackageGenerator.create_package(package_name, merged_options, plugin_options)
+        output_dir = get(merged_options, "output-dir", pwd())
+        PackageGenerator.create_package(package_name, merged_options, plugin_options, output_dir)
 
         # Generate mise config if requested
         if get(merged_options, "with_mise", true)

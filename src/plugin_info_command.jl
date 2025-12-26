@@ -8,10 +8,9 @@ module PluginInfoCommand
 
 using PkgTemplates
 
-# Import dependencies
-include("types.jl")
-include("errors.jl")
-include("plugin_discovery.jl")
+# Import from parent module
+using ..JuliaPkgTemplatesCommandLineInterface: CommandResult, PluginNotFoundError, PluginDetails
+import ..PluginDiscovery
 
 """
     list_all_plugins(plugins::Vector{Type{<:PkgTemplates.Plugin}})::Nothing

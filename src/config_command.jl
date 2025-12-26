@@ -7,10 +7,9 @@ module ConfigCommand
 
 using TOML
 
-# Import dependencies
-include("types.jl")
-include("errors.jl")
-include("config_manager.jl")
+# Import from parent module
+using ..JuliaPkgTemplatesCommandLineInterface: CommandResult, JTCError, ConfigurationError
+import ..ConfigManager
 
 """
     format_config(config::Dict{String, Any})::String
