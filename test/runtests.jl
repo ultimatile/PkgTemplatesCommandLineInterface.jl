@@ -8,7 +8,7 @@ using Aqua
         # Will be re-enabled after core implementation is complete
         Aqua.test_all(
             JuliaPkgTemplatesCommandLineInterface;
-            stale_deps=false,
+            stale_deps=true,
             deps_compat=(check_extras=false,)
         )
     end
