@@ -105,7 +105,12 @@ const TemplateManager = JuliaPkgTemplatesCommandLineInterface.TemplateManager
 
             # Verify fish shell syntax
             @test occursin("complete -c jtc", result)
-            @test occursin("create config plugin-info completion", result)
+
+            # Verify each subcommand is present (they are on separate lines)
+            @test occursin("create", result)
+            @test occursin("config", result)
+            @test occursin("plugin-info", result)
+            @test occursin("completion", result)
 
             # Verify plugin names are included
             for plugin in plugin_names
