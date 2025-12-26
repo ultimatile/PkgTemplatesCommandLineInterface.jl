@@ -9,11 +9,8 @@ using Test
 using JuliaPkgTemplatesCommandLineInterface
 using TOML
 
-# Import ConfigCommand (will be defined in src/config_command.jl)
-include("../src/config_command.jl")
-
-# Import types directly (these are already included in ConfigCommand)
-include("../src/types.jl")
+# Import ConfigCommand from the main module
+using JuliaPkgTemplatesCommandLineInterface.ConfigCommand
 
 @testset "ConfigCommand" begin
     @testset "format_config()" begin

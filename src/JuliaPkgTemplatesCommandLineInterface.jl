@@ -12,6 +12,9 @@ export PluginNotFoundError
 export CommandResult
 export PluginDetails
 
+# Export modules
+export ConfigCommand
+
 # Include error type definitions
 include("errors.jl")
 
