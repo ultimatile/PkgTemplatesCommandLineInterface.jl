@@ -102,14 +102,23 @@ function instantiate_plugins(plugin_options::Dict{String,Dict{String,Any}})::Vec
         # Get the plugin type from PkgTemplates module
         PluginType = getfield(PkgTemplates, Symbol(plugin_name))
 
+        # Convert types as needed
+        processed_options = Dict{String,Any}()
+        for (k, v) in options
+            if k == "ignore" && v isa String
+                processed_options[k] = split(v, ',')
+            elseif k == "version" && v isa String
+                processed_options[k] = VersionNumber(v)
+            else
+                processed_options[k] = v
+            end
+        end
+
         # Instantiate plugin with options
-        plugin_instance = if isempty(options)
-            # Zero-argument constructor for plugins with no options
+        plugin_instance = if isempty(processed_options)
             PluginType()
         else
-            # Keyword argument constructor with provided options
-            # Convert string keys to symbols for keyword arguments
-            kwargs = (Symbol(k) => v for (k, v) in options)
+            kwargs = (Symbol(k) => v for (k, v) in processed_options)
             PluginType(; kwargs...)
         end
 

@@ -30,6 +30,10 @@ description = "Show package status"
 run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.status()'"
 
 # Development tasks
+[tasks.run]
+description = "Run the CLI application locally (usage: mise run run -- create MyPackage)"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using JuliaPkgTemplatesCommandLineInterface' --"
+
 [tasks.test]
 description = "Run package tests"
 run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.test()'"

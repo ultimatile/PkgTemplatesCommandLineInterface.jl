@@ -133,8 +133,20 @@ function execute(args::Dict{String, Any})::CommandResult
         config_defaults = get(config, "default", Dict{String, Any}())
         merged_options = merge_config(config_defaults, args)
 
-        # Parse plugin options
+        # Parse plugin options from CLI
         plugin_options = parse_plugin_options(args)
+
+        # Extract plugin options from config (nested Dicts with capitalized keys)
+        for (key, value) in merged_options
+            if value isa Dict && !isempty(key) && isuppercase(first(key))
+                # Merge with CLI plugin options (CLI takes precedence)
+                if haskey(plugin_options, key)
+                    plugin_options[key] = merge(Dict{String,Any}(k => v for (k,v) in value), plugin_options[key])
+                else
+                    plugin_options[key] = Dict{String,Any}(k => v for (k,v) in value)
+                end
+            end
+        end
 
         # Dry-run check
         if get(args, "dry-run", false)
