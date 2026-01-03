@@ -96,10 +96,11 @@ using TOML
     @testset "@main function - dispatch and error handling" begin
         # Test dispatch_command function
         @testset "dispatch_command - create command" begin
-            # Mock args for create command
-            args = Dict{String,Any}("package_name" => "TestPkg")
-            result = JuliaPkgTemplatesCommandLineInterface.dispatch_command("create", args)
-            @test result isa JuliaPkgTemplatesCommandLineInterface.CommandResult
+            mktempdir() do tmpdir
+                args = Dict{String,Any}("package_name" => "TestPkg", "output-dir" => tmpdir)
+                result = JuliaPkgTemplatesCommandLineInterface.dispatch_command("create", args)
+                @test result isa JuliaPkgTemplatesCommandLineInterface.CommandResult
+            end
         end
 
         @testset "dispatch_command - config command" begin
