@@ -197,11 +197,11 @@ using TOML
                     old_stdout = stdout
                     (read_pipe, write_pipe) = redirect_stdout()
 
-                    result = JuliaPkgTemplatesCommandLineInterface.dispatch_command(
+                    # Should emit expected error/warn logs and succeed with default config
+                    result = @test_logs (:error,) (:warn,) JuliaPkgTemplatesCommandLineInterface.dispatch_command(
                         "config",
                         args
                     )
-                    # Should succeed with default config
                     @test result.success == true
 
                     redirect_stdout(old_stdout)

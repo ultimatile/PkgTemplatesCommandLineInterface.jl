@@ -156,8 +156,8 @@ include("../src/config_manager.jl")
                 config_path = ConfigManager.get_config_path()
                 write(config_path, "invalid toml {{{")
 
-                # Should return default config and log warning
-                loaded_config = ConfigManager.load_config()
+                # Should return default config and emit expected logs
+                loaded_config = @test_logs (:error,) (:warn,) ConfigManager.load_config()
 
                 @test haskey(loaded_config, "default")
                 @test loaded_config["default"]["author"] == ""
