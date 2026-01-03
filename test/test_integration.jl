@@ -229,77 +229,79 @@ using TOML
     @testset "Dry-Run Mode Integration" begin
         @testset "Dry-run mode prevents package creation" begin
             mktempdir() do tmpdir
-                # Test: Create package with --dry-run
-                args = Dict{String, Any}(
-                    "package_name" => "DryRunTest",
-                    "output-dir" => tmpdir,
-                    "dry-run" => true
-                )
+                withenv("XDG_CONFIG_HOME" => tmpdir) do
+                    # Test: Create package with --dry-run
+                    args = Dict{String, Any}(
+                        "package_name" => "DryRunTest",
+                        "output-dir" => tmpdir,
+                        "dry-run" => true
+                    )
 
-                result = JuliaPkgTemplatesCommandLineInterface.dispatch_command(
-                    "create",
-                    args
-                )
+                    result = JuliaPkgTemplatesCommandLineInterface.dispatch_command(
+                        "create",
+                        args
+                    )
 
-                # Should succeed
-                @test result.success == true
+                    # Should succeed
+                    @test result.success == true
 
-                # But should NOT create the package directory
-                pkg_dir = joinpath(tmpdir, "DryRunTest")
-                @test !isdir(pkg_dir)
+                    # But should NOT create the package directory
+                    pkg_dir = joinpath(tmpdir, "DryRunTest")
+                    @test !isdir(pkg_dir)
+                end
             end
         end
 
         @testset "Dry-run mode shows execution plan" begin
             mktempdir() do tmpdir
-                # Test: Dry-run should output what would be done
-                args = Dict{String, Any}(
-                    "package_name" => "DryRunTest",
-                    "output-dir" => tmpdir,
-                    "dry-run" => true,
-                    "author" => "Test Author"
-                )
+                withenv("XDG_CONFIG_HOME" => tmpdir) do
+                    # Test: Dry-run should output what would be done
+                    args = Dict{String, Any}(
+                        "package_name" => "DryRunTest",
+                        "output-dir" => tmpdir,
+                        "dry-run" => true,
+                        "author" => "Test Author"
+                    )
 
-                # Capture output
-                old_stdout = stdout
-                (read_pipe, write_pipe) = redirect_stdout()
+                    # Capture output
+                    old_stdout = stdout
+                    (read_pipe, write_pipe) = redirect_stdout()
 
-                result = JuliaPkgTemplatesCommandLineInterface.dispatch_command(
-                    "create",
-                    args
-                )
-                @test result.success == true
+                    result = JuliaPkgTemplatesCommandLineInterface.dispatch_command(
+                        "create",
+                        args
+                    )
+                    @test result.success == true
 
-                redirect_stdout(old_stdout)
-                close(write_pipe)
-                output = String(read(read_pipe))
-                close(read_pipe)
+                    redirect_stdout(old_stdout)
+                    close(write_pipe)
+                    output = String(read(read_pipe))
+                    close(read_pipe)
 
-                # Should show what would be created
-                @test occursin("DryRunTest", output) || occursin("dry", lowercase(output))
+                    # Should show what would be created
+                    @test occursin("DryRunTest", output) || occursin("dry", lowercase(output))
+                end
             end
         end
     end
 
     @testset "@main Function End-to-End Integration" begin
-        # Note: @main function is tested separately via CLI tests (test_cli.jl)
-        # which uses julia -m to invoke the actual @main entry point.
-        # Direct invocation of @main macro is not possible in tests.
-
         @testset "Dispatch command integration works end-to-end" begin
-            # Test: Full dispatch flow without @main
-            mktempdir() do tmpdir
-                # Simulate what @main would do
-                settings = JuliaPkgTemplatesCommandLineInterface.create_argument_parser()
-                JuliaPkgTemplatesCommandLineInterface.add_dynamic_plugin_options!(settings)
+            mktempdir() do config_dir
+                mktempdir() do output_dir
+                    withenv("XDG_CONFIG_HOME" => config_dir) do
+                        settings = JuliaPkgTemplatesCommandLineInterface.create_argument_parser()
+                        JuliaPkgTemplatesCommandLineInterface.add_dynamic_plugin_options!(settings)
 
-                parsed_args = ArgParse.parse_args(["create", "TestE2E", "--output-dir", tmpdir], settings)
+                        parsed_args = ArgParse.parse_args(["create", "TestE2E", "--output-dir", output_dir, "--user", "testuser"], settings)
 
-                command = parsed_args["%COMMAND%"]
-                result = JuliaPkgTemplatesCommandLineInterface.dispatch_command(command, parsed_args[command])
+                        command = parsed_args["%COMMAND%"]
+                        result = JuliaPkgTemplatesCommandLineInterface.dispatch_command(command, parsed_args[command])
 
-                @test result.success == true
-                @test isdir(joinpath(tmpdir, "TestE2E"))
+                        @test result.success == true
+                        @test isdir(joinpath(output_dir, "TestE2E"))
+                    end
+                end
             end
         end
     end
