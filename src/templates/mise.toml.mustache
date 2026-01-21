@@ -3,53 +3,54 @@
 
 [env]
 JULIA_PROJECT = "{{project_dir}}"
+{{=[[ ]]=}}
 
 # Package management tasks
 [tasks.instantiate]
 description = "Install package dependencies"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.instantiate()'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.instantiate()'"
 
 [tasks.resolve]
 description = "Resolve package dependencies"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.resolve()'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.resolve()'"
 
 [tasks.update]
 description = "Update package dependencies"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.update()'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.update()'"
 
 [tasks.add]
 description = "Add a package dependency (usage: mise run add PackageName)"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.add(ARGS)' --"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.add(ARGS)' --"
 
 [tasks.rm]
 description = "Remove a package dependency (usage: mise run rm PackageName)"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.rm(ARGS)' --"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.rm(ARGS)' --"
 
 [tasks.status]
 description = "Show package status"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.status()'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.status()'"
 
 # Development tasks
 [tasks.test]
 description = "Run package tests"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.test()'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.test()'"
 
 [tasks.build]
 description = "Build the package"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.build()'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.build()'"
 
 [tasks.dev]
 description = "Start development mode (usage: mise run dev PackageName)"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.develop(ARGS)' --"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.develop(ARGS)' --"
 
 [tasks.repl]
 description = "Start Julia REPL with project environment"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}'"
+run = "julia --project='{{ env.JULIA_PROJECT }}'"
 
 # Code quality tasks
 [tasks.format]
 description = "Format code using JuliaFormatter"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using JuliaFormatter; format(\".\")'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using JuliaFormatter; format(\".\")'"
 
 # Documentation tasks
 [tasks.docs-build]
@@ -64,13 +65,13 @@ run = "julia --project=docs -e 'using LiveServer; serve(dir=\"docs/build\")'"
 
 [tasks.precompile]
 description = "Precompile package"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; Pkg.precompile()'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; Pkg.precompile()'"
 
 # CI-related tasks
 [tasks.ci-test]
 description = "Run tests in CI mode"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' --code-coverage=user -e 'using Pkg; Pkg.test(coverage=true)'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' --code-coverage=user -e 'using Pkg; Pkg.test(coverage=true)'"
 
 [tasks.coverage]
 description = "Generate coverage report"
-run = "julia --project='{{{{env.JULIA_PROJECT}}}}' -e 'using Pkg; using Coverage; coverage = process_folder(); covered_lines, total_lines = get_summary(coverage); println(\"Coverage: \", round(covered_lines/total_lines*100, digits=2), \"%\")'"
+run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; using Coverage; coverage = process_folder(); covered_lines, total_lines = get_summary(coverage); println(\"Coverage: \", round(covered_lines/total_lines*100, digits=2), \"%\")'"
