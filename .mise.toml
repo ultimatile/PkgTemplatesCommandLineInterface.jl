@@ -67,6 +67,10 @@ run = "julia --project=docs -e 'using LiveServer; serve(dir=\"docs/build\")'"
 # Utility tasks
 [tasks.install]
 description = "Install the CLI application using Pkg.Apps"
+run = "julia -e 'using Pkg; Pkg.Apps.add(url=\"https://github.com/ultimatile/JuliaPkgTemplatesCommandLineInterface.jl\")'"
+
+[tasks.install-local]
+description = "Install the CLI application from local path"
 run = "julia -e 'using Pkg; Pkg.Apps.add(path=\"'\"$(pwd)\"'\")'"
 
 [tasks.uninstall]

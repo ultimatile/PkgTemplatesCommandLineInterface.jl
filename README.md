@@ -22,6 +22,14 @@ A command-line interface for [PkgTemplates.jl](https://github.com/JuliaCI/PkgTem
 julia -e 'using Pkg; Pkg.Apps.add(url="https://github.com/ultimatile/JuliaPkgTemplatesCommandLineInterface.jl")'
 ```
 
+### Using mise
+
+```bash
+git clone https://github.com/ultimatile/JuliaPkgTemplatesCommandLineInterface.jl
+cd JuliaPkgTemplatesCommandLineInterface.jl
+mise run install
+```
+
 ## Usage
 
 ```bash
