@@ -1,0 +1,68 @@
+#compdef jtc
+
+_jtc() {
+    local -a commands
+    commands=(
+        'create:Create a new Julia package'
+        'config:Configuration management'
+        'plugin-info:Show information about plugins'
+        'completion:Generate shell completion script'
+    )
+
+    local -a global_opts
+    global_opts=(
+        '--help[Show help message]'
+        '--version[Show version]'
+        '--verbose[Enable verbose logging]'
+        '-v[Enable verbose logging]'
+    )
+
+    _arguments -C \
+        $global_opts \
+        '1:command:->command' \
+        '*::arg:->args'
+
+    case "$state" in
+        command)
+            _describe -t commands 'jtc commands' commands
+            ;;
+        args)
+            case "${words[1]}" in
+                create)
+                    _arguments \
+                        '--author[Author name]:author:' \
+                        '--user[Git hosting username]:user:' \
+                        '(-o --output-dir)'{-o,--output-dir}'[Output directory]:directory:_files -/' \
+                        '--with-mise[Generate mise configuration file]' \
+                        '--dry-run[Show what would be done without executing]'
+                    ;;
+                config)
+                    local -a config_commands
+                    config_commands=(
+                        'show:Show current configuration'
+                        'set:Set configuration values'
+                    )
+                    _arguments \
+                        '1:config command:->config_cmd' \
+                        '--author[Set default author]:author:' \
+                        '--user[Set default user]:user:'
+                    case "$state" in
+                        config_cmd)
+                            _describe -t commands 'config commands' config_commands
+                            ;;
+                    esac
+                    ;;
+                plugin-info)
+                    local -a plugins
+                    plugins=({{#plugins}}{{name}} {{/plugins}})
+                    _arguments '1:plugin:($plugins)'
+                    ;;
+                completion)
+                    _arguments '1:shell:(fish bash zsh)'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_jtc "$@"

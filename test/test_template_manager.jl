@@ -126,9 +126,9 @@ const TemplateManager = JuliaPkgTemplatesCommandLineInterface.TemplateManager
         end
 
         @testset "throws TemplateGenerationError for unsupported shell" begin
-            # Template file doesn't exist for bash yet
+            # Template file doesn't exist for powershell
             @test_throws TemplateGenerationError TemplateManager.generate_completion(
-                "bash",
+                "powershell",
                 ["Git"]
             )
         end

@@ -64,7 +64,7 @@ end
 
         @testset "handles unsupported shell gracefully" begin
             args = Dict{String,Any}(
-                "shell" => "bash"  # Currently unsupported
+                "shell" => "powershell"  # Unsupported
             )
 
             result = CompletionCommand.execute(args)
@@ -72,7 +72,7 @@ end
             # Should fail gracefully with error message
             @test result.success == false
             @test result.message !== nothing
-            @test contains(result.message, "fish") || contains(result.message, "supported")
+            @test contains(result.message, "Unsupported") || contains(result.message, "supported")
         end
 
         @testset "includes plugin names in completion output" begin

@@ -1,0 +1,38 @@
+# Bash completion for jtc (JuliaPkgTemplatesCLI)
+
+_jtc() {
+    local cur prev words cword
+    _init_completion || return
+
+    local commands="create config plugin-info completion"
+    local global_opts="--help --version --verbose -v"
+
+    case "${words[1]}" in
+        create)
+            local create_opts="--author --user --output-dir -o --with-mise --dry-run --help"
+            COMPREPLY=($(compgen -W "${create_opts}" -- "${cur}"))
+            ;;
+        config)
+            if [[ ${cword} -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "show set" -- "${cur}"))
+            else
+                local config_opts="--author --user"
+                COMPREPLY=($(compgen -W "${config_opts}" -- "${cur}"))
+            fi
+            ;;
+        plugin-info)
+            local plugins="{{#plugins}}{{name}} {{/plugins}}"
+            COMPREPLY=($(compgen -W "${plugins}" -- "${cur}"))
+            ;;
+        completion)
+            COMPREPLY=($(compgen -W "fish bash zsh" -- "${cur}"))
+            ;;
+        *)
+            if [[ ${cword} -eq 1 ]]; then
+                COMPREPLY=($(compgen -W "${commands} ${global_opts}" -- "${cur}"))
+            fi
+            ;;
+    esac
+}
+
+complete -F _jtc jtc

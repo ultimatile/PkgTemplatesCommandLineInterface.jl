@@ -43,10 +43,10 @@ function execute(args::Dict{String,Any})::CommandResult
         shell = get(args, "shell", "fish")
 
         # Check if shell is supported
-        if shell != "fish"
+        if shell ∉ ("fish", "bash", "zsh")
             return CommandResult(
                 success=false,
-                message="Only fish shell is supported currently"
+                message="Unsupported shell: $shell. Supported: fish, bash, zsh"
             )
         end
 
