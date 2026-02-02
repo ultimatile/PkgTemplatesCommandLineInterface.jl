@@ -66,10 +66,6 @@ run = "julia --project=docs -e 'using LiveServer; serve(dir=\"docs/build\")'"
 
 # Utility tasks
 [tasks.install]
-description = "Install the CLI application using Pkg.Apps"
-run = "julia -e 'using Pkg; Pkg.Apps.add(url=\"https://github.com/ultimatile/PkgTemplatesCommandLineInterface.jl\")'"
-
-[tasks.install-local]
 description = "Install the CLI application from local path"
 run = "julia -e 'using Pkg; Pkg.Apps.add(path=\"'\"$(pwd)\"'\")'"
 
@@ -89,4 +85,3 @@ run = "julia --project='{{ env.JULIA_PROJECT }}' --code-coverage=user -e 'using 
 [tasks.coverage]
 description = "Generate coverage report"
 run = "julia --project='{{ env.JULIA_PROJECT }}' -e 'using Pkg; using Coverage; coverage = process_folder(); covered_lines, total_lines = get_summary(coverage); println(\"Coverage: \", round(covered_lines/total_lines*100, digits=2), \"%\")'"
-
