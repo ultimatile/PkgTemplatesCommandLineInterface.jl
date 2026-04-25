@@ -148,6 +148,29 @@ function execute(args::Dict{String, Any})::CommandResult
             end
         end
 
+        # Transform author (singular) to authors (plural array) for PkgTemplates.jl.
+        # `config set --author A --author B` may persist author as Vector{String};
+        # accept that shape too so the value flows into PkgTemplates unchanged.
+        if haskey(merged_options, "author") && !haskey(merged_options, "authors")
+            author = merged_options["author"]
+            merged_options["authors"] = if author isa AbstractVector
+                String[String(a) for a in author]
+            elseif author == ""
+                String[]
+            else
+                [author]
+            end
+        end
+
+        # Promote a config-only license (saved as `license_type` by `config set
+        # --license`) into the License plugin section so PackageGenerator picks
+        # it up. CLI-supplied License options keep precedence.
+        config_license = get(merged_options, "license_type", nothing)
+        if config_license !== nothing && config_license != "" &&
+           !haskey(plugin_options, "License")
+            plugin_options["License"] = Dict{String,Any}("name" => config_license)
+        end
+
         # Dry-run check
         if get(args, "dry-run", false)
             return show_dry_run_plan(merged_options, plugin_options, args)
@@ -160,12 +183,6 @@ function execute(args::Dict{String, Any})::CommandResult
                 success=false,
                 message="Package name is required"
             )
-        end
-
-        # Transform author (singular) to authors (plural array) for PkgTemplates.jl
-        if haskey(merged_options, "author") && !haskey(merged_options, "authors")
-            author = merged_options["author"]
-            merged_options["authors"] = author == "" ? String[] : [author]
         end
 
         # Create package
