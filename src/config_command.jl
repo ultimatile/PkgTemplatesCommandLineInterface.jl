@@ -13,11 +13,6 @@ using ..PkgTemplatesCommandLineInterface: CommandResult, JTCError, Configuration
 import ..ConfigManager
 import ..PluginDiscovery
 
-# Top-level config keys handled directly (everything else is treated as plugin
-# configuration when the key matches a known plugin name).
-const _BASIC_KEYS = ("author", "user", "mail", "license_type", "julia_version",
-                     "mise_filename_base", "with_mise", "output_dir")
-
 """
     format_config(config::Dict{String, Any})::String
 
@@ -49,16 +44,7 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
             continue
         end
 
-        if value isa AbstractString && contains(key, '.')
-            parts = split(key, '.', limit=2)
-            section, option = parts[1], parts[2]
-            section_dict = get!(updated["default"], section, Dict{String,Any}())
-            if !(section_dict isa Dict)
-                section_dict = Dict{String,Any}()
-                updated["default"][section] = section_dict
-            end
-            section_dict[option] = value
-        elseif contains(key, '.')
+        if contains(key, '.')
             parts = split(key, '.', limit=2)
             section, option = parts[1], parts[2]
             section_dict = get!(updated["default"], section, Dict{String,Any}())
