@@ -100,13 +100,17 @@ function parse_plugin_option_value(value_str::AbstractString)
         # Decimal-looking values (e.g., "1.2", "1.10") stay strings: downstream
         # plugins such as ProjectFile expect a string they can parse into a
         # VersionNumber, and Float coercion would also drop trailing zeros.
-        # Strip surrounding quotes for plain string values
-        if (startswith(s, '"') && endswith(s, '"')) ||
-           (startswith(s, '\'') && endswith(s, '\''))
+        was_quoted = (startswith(s, '"') && endswith(s, '"')) ||
+                     (startswith(s, '\'') && endswith(s, '\''))
+        if was_quoted
             s = s[2:end-1]
         end
-        # Auto-promote comma-separated strings to arrays for PkgTemplates.jl compatibility
-        if occursin(',', s)
+        # Auto-promote comma-separated strings to arrays for PkgTemplates.jl
+        # compatibility — but only when the user did NOT explicitly quote the
+        # value. Quotes signal "this is a literal string", so a value like
+        # `name="Doe, Jane"` must stay a single string instead of becoming
+        # ["Doe", "Jane"] (which would break String-typed fields like Git.name).
+        if !was_quoted && occursin(',', s)
             return [String(strip(item)) for item in split(s, ',') if !isempty(strip(item))]
         end
         return s
