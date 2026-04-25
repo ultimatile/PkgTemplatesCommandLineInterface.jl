@@ -171,6 +171,16 @@ function execute(args::Dict{String, Any})::CommandResult
             plugin_options["License"] = Dict{String,Any}("name" => config_license)
         end
 
+        # Normalize the mise toggle: ArgParse stores the CLI flags under
+        # "with-mise"/"no-mise" (dashes), while the persisted config key is
+        # "with_mise". Reconcile both so the explicit CLI flag wins, which is
+        # what the user expects when overriding a saved default.
+        if get(args, "no-mise", false) === true
+            merged_options["with_mise"] = false
+        elseif get(args, "with-mise", false) === true
+            merged_options["with_mise"] = true
+        end
+
         # Dry-run check
         if get(args, "dry-run", false)
             return show_dry_run_plan(merged_options, plugin_options, args)
@@ -189,8 +199,8 @@ function execute(args::Dict{String, Any})::CommandResult
         output_dir = get(merged_options, "output-dir", pwd())
         PackageGenerator.create_package(package_name, merged_options, plugin_options, output_dir)
 
-        # Generate mise config if requested (--no-mise takes precedence)
-        if !get(args, "no-mise", false) && get(merged_options, "with_mise", true)
+        # Generate mise config when enabled (default: true if unspecified)
+        if get(merged_options, "with_mise", true)
             try
                 TemplateManager.generate_mise_config(package_name, merged_options, output_dir)
             catch e

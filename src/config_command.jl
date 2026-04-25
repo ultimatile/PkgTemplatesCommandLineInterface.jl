@@ -96,9 +96,10 @@ function parse_plugin_option_value(value_str::AbstractString)
         return [String(strip(strip(item), ['"', '\''])) for item in split(inner, ',')]
     elseif occursin(r"^\d+$", s)
         return parse(Int, s)
-    elseif occursin(r"^\d+\.\d+$", s)
-        return parse(Float64, s)
     else
+        # Decimal-looking values (e.g., "1.2", "1.10") stay strings: downstream
+        # plugins such as ProjectFile expect a string they can parse into a
+        # VersionNumber, and Float coercion would also drop trailing zeros.
         # Strip surrounding quotes for plain string values
         if (startswith(s, '"') && endswith(s, '"')) ||
            (startswith(s, '\'') && endswith(s, '\''))
