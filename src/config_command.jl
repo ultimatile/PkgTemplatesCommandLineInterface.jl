@@ -243,19 +243,40 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
         push!(messages, "Set default with_mise: false")
     end
 
-    # Plugin options: any CLI key matching a known plugin name (case-insensitive)
+    # Plugin options: any CLI key matching a known plugin name (case-insensitive),
+    # plus legacy dot-notation keys (e.g., `formatter.style => "blue"`) for
+    # direct callers that still pass the flat update_config shape.
     canonical = _plugin_canonical_names()
     for (key, value) in sub_args
+        key_str = String(key)
+
         # Skip already-handled keys and meta-keys
-        if key in ("author", "user", "mail", "license", "julia-version",
-                   "mise-filename-base", "with-mise", "no-mise", "config-file",
-                   "%COMMAND%")
+        if key_str in ("author", "user", "mail", "license", "julia-version",
+                       "mise-filename-base", "with-mise", "no-mise",
+                       "config-file", "%COMMAND%")
             continue
         end
-        if !haskey(canonical, lowercase(String(key)))
+
+        # Support dotted legacy updates that don't go through the plugin
+        # canonical mapping. Preserves prior `update_config` behaviour for
+        # mixed CLI/legacy callers.
+        if contains(key_str, '.')
+            parts = split(key_str, '.', limit=2)
+            section, option = String(parts[1]), String(parts[2])
+            section_dict = get(defaults, section, nothing)
+            if !(section_dict isa Dict)
+                section_dict = Dict{String,Any}()
+                defaults[section] = section_dict
+            end
+            section_dict[option] = value
+            push!(messages, "Set default $section.$option: $(repr(value))")
             continue
         end
-        plugin_name = canonical[lowercase(String(key))]
+
+        if !haskey(canonical, lowercase(key_str))
+            continue
+        end
+        plugin_name = canonical[lowercase(key_str)]
 
         # Possible shapes for `value`:
         #   nothing          → option not specified

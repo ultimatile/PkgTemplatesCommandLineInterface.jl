@@ -65,6 +65,8 @@ function create_argument_parser()::ArgParseSettings
             help = "Package author name"
         "--user"
             help = "GitHub username"
+        "--mail"
+            help = "Email address attached to each author when generating the package"
         "--output-dir", "-o"
             help = "Output directory for the package"
             default = pwd()

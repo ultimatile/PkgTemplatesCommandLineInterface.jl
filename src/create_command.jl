@@ -162,6 +162,20 @@ function execute(args::Dict{String, Any})::CommandResult
             end
         end
 
+        # Attach `mail` to every author entry that doesn't already carry an
+        # email so the generated Project.toml records `Name <mail>` — this is
+        # how `config set --mail` and `create --mail` reach PkgTemplates.
+        mail = get(merged_options, "mail", nothing)
+        if mail isa AbstractString && !isempty(mail)
+            authors = get(merged_options, "authors", nothing)
+            if authors isa AbstractVector && !isempty(authors)
+                merged_options["authors"] = String[
+                    occursin('<', String(a)) ? String(a) : "$(String(a)) <$mail>"
+                    for a in authors
+                ]
+            end
+        end
+
         # Promote a config-only license (saved as `license_type` by `config set
         # --license`) into the License plugin section so PackageGenerator picks
         # it up. CLI-supplied License options keep precedence.
