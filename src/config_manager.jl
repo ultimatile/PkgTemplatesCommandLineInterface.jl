@@ -9,20 +9,29 @@ module ConfigManager
 using TOML
 
 """
-    get_config_path()::String
+    get_config_path(custom_path::Union{String,Nothing}=nothing)::String
 
-Get the configuration file path following XDG Base Directory specification.
+Resolve the configuration file path.
 
-Respects the `XDG_CONFIG_HOME` environment variable. If not set, defaults to
-`~/.config`. Creates the directory if it doesn't exist.
+When `custom_path` is provided, returns its absolute, tilde-expanded form
+without creating any directories — callers are responsible for `mkpath` on
+save. With no argument, follows the XDG Base Directory specification:
+respects `XDG_CONFIG_HOME` (defaults to `~/.config`), appends `jtc`, and
+creates the directory when missing.
+
+# Arguments
+- `custom_path::Union{String,Nothing}`: Optional override (e.g., from `--config-file`)
 
 # Returns
-- `String`: Absolute path to the configuration file (`config.toml`)
+- `String`: Absolute path to the configuration file
 
 # Example
 ```julia
-config_path = ConfigManager.get_config_path()
-# Returns: "/home/user/.config/jtc/config.toml" (on Unix systems)
+ConfigManager.get_config_path()
+# "/home/user/.config/jtc/config.toml"
+
+ConfigManager.get_config_path("~/custom/jtc.toml")
+# "/home/user/custom/jtc.toml"
 ```
 """
 function get_config_path(custom_path::Union{String,Nothing}=nothing)::String
@@ -77,15 +86,17 @@ function create_default_config()::Dict{String,Any}
 end
 
 """
-    save_config(config::Dict{String, Any})::Nothing
+    save_config(config::Dict{String, Any}, custom_path::Union{String,Nothing}=nothing)::Nothing
 
-Save configuration to TOML file.
+Save configuration to a TOML file.
 
-Uses `sorted=true` for stable output order. Creates parent directories
-if they don't exist.
+Uses `sorted=true` for stable output order. The destination is
+`get_config_path(custom_path)` and its parent directory is created on
+demand, so a custom path pointing inside a non-existent folder is fine.
 
 # Arguments
 - `config::Dict{String, Any}`: Configuration dictionary to save
+- `custom_path::Union{String,Nothing}`: Optional override (e.g., from `--config-file`)
 
 # Note
 TOML.jl does not preserve comments in config files. This is a known limitation.
@@ -94,6 +105,9 @@ TOML.jl does not preserve comments in config files. This is a known limitation.
 ```julia
 config = Dict("default" => Dict("author" => "Jane Doe"))
 ConfigManager.save_config(config)
+
+# Write to a non-default location:
+ConfigManager.save_config(config, "~/custom/jtc.toml")
 ```
 """
 function save_config(config::Dict{String,Any}, custom_path::Union{String,Nothing}=nothing)::Nothing
@@ -112,24 +126,31 @@ function save_config(config::Dict{String,Any}, custom_path::Union{String,Nothing
 end
 
 """
-    load_config()::Dict{String, Any}
+    load_config(custom_path::Union{String,Nothing}=nothing)::Dict{String, Any}
 
-Load configuration from TOML file.
+Load configuration from a TOML file.
 
-If the file doesn't exist, creates and saves a default configuration.
-If parsing fails, logs a warning and returns default configuration.
+Reads from `get_config_path(custom_path)`. If the file doesn't exist,
+writes and returns a default configuration. If parsing fails, logs a
+warning and returns the default without saving.
+
+# Arguments
+- `custom_path::Union{String,Nothing}`: Optional override (e.g., from `--config-file`)
 
 # Returns
 - `Dict{String, Any}`: Loaded or default configuration
 
 # Error Handling
-- File not found: Creates default config and saves it
+- File not found: Creates default config and saves it (at `custom_path` when provided)
 - Parse error: Logs warning, returns default config (does not save)
 
 # Example
 ```julia
 config = ConfigManager.load_config()
 author = config["default"]["author"]
+
+# Read from a custom location:
+config = ConfigManager.load_config("~/custom/jtc.toml")
 ```
 """
 function load_config(custom_path::Union{String,Nothing}=nothing)::Dict{String,Any}

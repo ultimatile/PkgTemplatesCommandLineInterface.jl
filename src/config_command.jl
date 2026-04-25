@@ -84,9 +84,9 @@ Mirrors `parse_plugin_option_value` in the Python port.
 function parse_plugin_option_value(value_str::AbstractString)
     s = String(value_str)
     lower = lowercase(s)
-    if lower in ("true", "yes", "1")
+    if lower in ("true", "yes")
         return true
-    elseif lower in ("false", "no", "0")
+    elseif lower in ("false", "no")
         return false
     elseif startswith(s, "[") && endswith(s, "]")
         inner = strip(s[2:end-1])
