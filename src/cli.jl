@@ -97,6 +97,45 @@ function create_argument_parser()::ArgParseSettings
             help = "Set configuration values"
     end
 
+    # Options for `config show`
+    @add_arg_table! s["config"]["show"] begin
+        "--config-file"
+            help = "Path to custom configuration file"
+    end
+
+    # Options for `config set` — mirrors the porting source (JuliaPkgTemplatesCLI)
+    @add_arg_table! s["config"]["set"] begin
+        "--author"
+            action = :append_arg
+            help = "Set default author(s); repeat or use comma-separated values"
+        "--user"
+            help = "Set default Git hosting username"
+        "--mail"
+            help = "Set default email address"
+        "--license"
+            help = "Set default license name (e.g., MIT, Apache)"
+        "--julia-version"
+            help = "Set default Julia version constraint (e.g., 1.10.9)"
+        "--mise-filename-base"
+            help = "Set default base name for mise config file"
+        "--config-file"
+            help = "Path to custom configuration file"
+    end
+
+    # Mutually exclusive mise toggle for `config set`
+    add_arg_group!(s["config"]["set"], "mise options", exclusive=true)
+    @add_arg_table! s["config"]["set"] begin
+        "--with-mise"
+            action = :store_true
+            help = "Set default to enable mise config generation"
+        "--no-mise"
+            action = :store_true
+            help = "Set default to disable mise config generation"
+    end
+
+    # Reset to default group so dynamic plugin options land in the main group
+    set_default_arg_group!(s["config"]["set"])
+
     # Options for plugin-info subcommand
     @add_arg_table! s["plugin-info"] begin
         "plugin_name"
@@ -121,36 +160,58 @@ Add dynamic plugin options (retrieved from PkgTemplates.jl at runtime)
 - `settings::ArgParseSettings`: ArgParse settings object
 
 # Side Effects
-- Adds plugin options to the `settings["create"]` subcommand
+- Adds plugin options to the `settings["create"]` and `settings["config"]["set"]` subcommands
 
 # Implementation Details
 - Retrieves all plugin types via `PluginDiscovery.get_plugins()`
 - Flag options (argumentless plugins) use `--srcdir` format
 - Key-value options (plugins with arguments) use `--formatter style=blue` format
+- License is skipped because `--license` is registered as an explicit value option
 """
 function add_dynamic_plugin_options!(settings::ArgParseSettings)::Nothing
+    # `create` keeps the historical flag-only behaviour for argumentless plugins.
+    add_dynamic_plugin_options!(settings["create"]; skip_license=false,
+                                 argumentless_as_flag=true)
+    # `config set` accepts an optional KEY=VALUE bundle so users can persist
+    # plugin-specific defaults (matches the Python port's `--git "ignore=..."` form).
+    add_dynamic_plugin_options!(settings["config"]["set"]; skip_license=true,
+                                 argumentless_as_flag=false)
+    return nothing
+end
+
+# Internal helper: add plugin options to a specific subcommand settings node.
+# `skip_license` avoids colliding with a separately-defined `--license` value option.
+# `argumentless_as_flag=true` matches the legacy `create` registration where
+# zero-arg plugins become bare flags. When false, every plugin accepts an
+# optional space-separated KEY=VALUE string (`--plugin` / `--plugin "k=v ..."`).
+function add_dynamic_plugin_options!(target;
+                                      skip_license::Bool=false,
+                                      argumentless_as_flag::Bool=true)::Nothing
     plugins = PluginDiscovery.get_plugins()
 
     for plugin in plugins
         plugin_name = string(nameof(plugin))
+        if skip_license && plugin_name == "License"
+            continue
+        end
         option_name = "--$(lowercase(plugin_name))"
 
-        # Determine if this is a flag option (argumentless plugin)
-        if PluginDiscovery.is_argumentless_plugin(plugin)
-            ArgParse.add_arg_table!(settings["create"],
+        if argumentless_as_flag && PluginDiscovery.is_argumentless_plugin(plugin)
+            ArgParse.add_arg_table!(target,
                 [option_name],
                 Dict(
                     :action => :store_true,
                     :help => "Enable $plugin_name plugin"
                 ))
         else
-            ArgParse.add_arg_table!(settings["create"],
+            ArgParse.add_arg_table!(target,
                 [option_name],
                 Dict(
-                    :action => :append_arg,
-                    :nargs => '*',
+                    :nargs => '?',
+                    :constant => "",
+                    :default => nothing,
                     :metavar => "KEY=VALUE",
-                    :help => "Options for $plugin_name plugin"
+                    :help => "Set $plugin_name plugin defaults (omit value to enable with defaults)"
                 ))
         end
     end

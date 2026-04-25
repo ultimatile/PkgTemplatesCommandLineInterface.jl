@@ -25,7 +25,13 @@ config_path = ConfigManager.get_config_path()
 # Returns: "/home/user/.config/jtc/config.toml" (on Unix systems)
 ```
 """
-function get_config_path()::String
+function get_config_path(custom_path::Union{String,Nothing}=nothing)::String
+    # If a custom path is supplied, normalise it but do not create the parent
+    # directory yet — that is the caller's responsibility on save.
+    if custom_path !== nothing
+        return abspath(expanduser(custom_path))
+    end
+
     # Get XDG_CONFIG_HOME or default to ~/.config
     xdg_config_home = get(ENV, "XDG_CONFIG_HOME", nothing)
     config_dir = if xdg_config_home !== nothing
@@ -90,8 +96,11 @@ config = Dict("default" => Dict("author" => "Jane Doe"))
 ConfigManager.save_config(config)
 ```
 """
-function save_config(config::Dict{String,Any})::Nothing
-    config_path = get_config_path()
+function save_config(config::Dict{String,Any}, custom_path::Union{String,Nothing}=nothing)::Nothing
+    config_path = get_config_path(custom_path)
+
+    # Ensure parent directory exists when writing to a user-specified location
+    mkpath(dirname(config_path))
 
     open(config_path, "w") do io
         # sorted=true ensures stable output order for easier testing and diffs
@@ -123,8 +132,8 @@ config = ConfigManager.load_config()
 author = config["default"]["author"]
 ```
 """
-function load_config()::Dict{String,Any}
-    config_path = get_config_path()
+function load_config(custom_path::Union{String,Nothing}=nothing)::Dict{String,Any}
+    config_path = get_config_path(custom_path)
 
     if isfile(config_path)
         # Try to parse the file
@@ -141,7 +150,7 @@ function load_config()::Dict{String,Any}
     else
         # File doesn't exist, create default
         default_config = create_default_config()
-        save_config(default_config)
+        save_config(default_config, custom_path)
         return default_config
     end
 end

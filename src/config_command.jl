@@ -2,6 +2,7 @@
 ConfigCommand module for managing CLI configuration commands.
 
 Handles 'config show' and 'config set' subcommands for configuration management.
+Mirrors the behaviour of the Python port (JuliaPkgTemplatesCLI).
 """
 module ConfigCommand
 
@@ -10,97 +11,63 @@ using TOML
 # Import from parent module
 using ..PkgTemplatesCommandLineInterface: CommandResult, JTCError, ConfigurationError
 import ..ConfigManager
+import ..PluginDiscovery
+
+# Top-level config keys handled directly (everything else is treated as plugin
+# configuration when the key matches a known plugin name).
+const _BASIC_KEYS = ("author", "user", "mail", "license_type", "julia_version",
+                     "mise_filename_base", "with_mise", "output_dir")
 
 """
     format_config(config::Dict{String, Any})::String
 
 Format configuration dictionary as TOML string for display.
-
-# Arguments
-- `config::Dict{String, Any}`: Configuration dictionary to format
-
-# Returns
-- `String`: TOML-formatted string representation of the configuration
-
-# Example
-```julia
-config = Dict("default" => Dict("author" => "John Doe"))
-formatted = ConfigCommand.format_config(config)
-println(formatted)
-# Output:
-# [default]
-# author = "John Doe"
-```
 """
 function format_config(config::Dict{String,Any})::String
     io = IOBuffer()
-    TOML.print(io, config)
+    TOML.print(io, config, sorted=true)
     return String(take!(io))
 end
 
 """
     update_config(existing_config::Dict, new_values::Dict)::Dict
 
-Merge new configuration values with existing configuration.
+Merge new configuration values into the `default` section of `existing_config`.
 
-Preserves existing values that are not being updated. Supports nested
-configuration using dot notation (e.g., "formatter.style").
-
-# Arguments
-- `existing_config::Dict`: Current configuration dictionary
-- `new_values::Dict`: New values to merge (key-value pairs or dot notation)
-
-# Returns
-- `Dict`: Updated configuration with new values merged in
-
-# Priority
-New values override existing values for the same key.
-
-# Special Handling
-- Ignores command-related keys: "show", "set", "%SUBCOMMAND%"
-- Supports dot notation: "formatter.style" creates nested structure
-- Creates nested sections if they don't exist
-
-# Example
-```julia
-existing = Dict("default" => Dict("author" => "Old"))
-new = Dict("author" => "New", "formatter.style" => "blue")
-updated = ConfigCommand.update_config(existing, new)
-# Result: Dict("default" => Dict("author" => "New", "formatter" => Dict("style" => "blue")))
-```
+Supports dot notation (e.g., `"formatter.style"`) for nested plugin entries.
+Special command-related keys are ignored so a raw ArgParse dict can be passed in.
 """
 function update_config(existing_config::Dict, new_values::Dict)::Dict
     updated = deepcopy(existing_config)
 
-    # Ensure "default" section exists
     if !haskey(updated, "default")
         updated["default"] = Dict{String,Any}()
     end
 
     for (key, value) in new_values
-        # Skip command-related keys
-        if key in ["show", "set", "%SUBCOMMAND%"]
+        if key in ("show", "set", "%COMMAND%", "%SUBCOMMAND%")
             continue
         end
 
-        # Handle nested configuration with dot notation
-        if contains(key, '.')
+        if value isa AbstractString && contains(key, '.')
             parts = split(key, '.', limit=2)
             section, option = parts[1], parts[2]
-
-            # Create section if it doesn't exist
-            if !haskey(updated["default"], section)
-                updated["default"][section] = Dict{String,Any}()
+            section_dict = get!(updated["default"], section, Dict{String,Any}())
+            if !(section_dict isa Dict)
+                section_dict = Dict{String,Any}()
+                updated["default"][section] = section_dict
             end
-
-            # Convert to Dict if needed
-            if !(updated["default"][section] isa Dict)
-                updated["default"][section] = Dict{String,Any}()
+            section_dict[option] = value
+        elseif contains(key, '.')
+            parts = split(key, '.', limit=2)
+            section, option = parts[1], parts[2]
+            section_dict = get!(updated["default"], section, Dict{String,Any}())
+            if !(section_dict isa Dict)
+                section_dict = Dict{String,Any}()
+                updated["default"][section] = section_dict
             end
-
-            updated["default"][section][option] = value
+            section_dict[option] = value
         else
-            # Simple key-value update
             updated["default"][key] = value
         end
     end
@@ -109,61 +76,281 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
 end
 
 """
+    parse_plugin_option_value(value_str::AbstractString)
+
+Convert a string token into the appropriate Julia type for storage in TOML.
+Mirrors `parse_plugin_option_value` in the Python port.
+"""
+function parse_plugin_option_value(value_str::AbstractString)
+    s = String(value_str)
+    lower = lowercase(s)
+    if lower in ("true", "yes", "1")
+        return true
+    elseif lower in ("false", "no", "0")
+        return false
+    elseif startswith(s, "[") && endswith(s, "]")
+        inner = strip(s[2:end-1])
+        if isempty(inner)
+            return String[]
+        end
+        return [String(strip(strip(item), ['"', '\''])) for item in split(inner, ',')]
+    elseif occursin(r"^\d+$", s)
+        return parse(Int, s)
+    elseif occursin(r"^\d+\.\d+$", s)
+        return parse(Float64, s)
+    else
+        # Strip surrounding quotes for plain string values
+        if (startswith(s, '"') && endswith(s, '"')) ||
+           (startswith(s, '\'') && endswith(s, '\''))
+            s = s[2:end-1]
+        end
+        # Auto-promote comma-separated strings to arrays for PkgTemplates.jl compatibility
+        if occursin(',', s)
+            return [String(strip(item)) for item in split(s, ',') if !isempty(strip(item))]
+        end
+        return s
+    end
+end
+
+# Split an option string respecting quotes and `[...]` arrays so that
+# `--plugin 'a=1 ignore=".vscode,.DS_Store"'` parses cleanly.
+function _split_plugin_option_string(s::AbstractString)::Vector{String}
+    parts = String[]
+    current = IOBuffer()
+    in_quotes = false
+    quote_char = '\0'
+    bracket_depth = 0
+
+    for c in s
+        if c in ('"', '\'') && !in_quotes && bracket_depth == 0
+            in_quotes = true
+            quote_char = c
+            print(current, c)
+        elseif in_quotes && c == quote_char
+            in_quotes = false
+            quote_char = '\0'
+            print(current, c)
+        elseif c == '[' && !in_quotes
+            bracket_depth += 1
+            print(current, c)
+        elseif c == ']' && !in_quotes
+            bracket_depth = max(bracket_depth - 1, 0)
+            print(current, c)
+        elseif c == ' ' && !in_quotes && bracket_depth == 0
+            piece = String(strip(String(take!(current))))
+            if !isempty(piece)
+                push!(parts, piece)
+            end
+        else
+            print(current, c)
+        end
+    end
+    piece = String(strip(String(take!(current))))
+    if !isempty(piece)
+        push!(parts, piece)
+    end
+    return parts
+end
+
+# Parse a `key=value key2=value2` string into a Dict, with type coercion.
+function _parse_plugin_kv_string(s::AbstractString)::Dict{String,Any}
+    options = Dict{String,Any}()
+    for part in _split_plugin_option_string(s)
+        if contains(part, '=')
+            k, v = split(part, '=', limit=2)
+            options[String(strip(k))] = parse_plugin_option_value(strip(v))
+        end
+    end
+    return options
+end
+
+# Build the lookup of {lowercase plugin name => canonical PkgTemplates name}.
+function _plugin_canonical_names()::Dict{String,String}
+    mapping = Dict{String,String}()
+    try
+        for p in PluginDiscovery.get_plugins()
+            name = string(nameof(p))
+            mapping[lowercase(name)] = name
+        end
+    catch
+        # Fall back to no plugins if PkgTemplates is unavailable; the caller
+        # will simply skip plugin-shaped options in that case.
+    end
+    return mapping
+end
+
+# Apply parsed `config set` arguments to the in-memory config dict.
+# Returns (updated_config, messages::Vector{String}).
+function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
+    if !haskey(config, "default")
+        config["default"] = Dict{String,Any}()
+    end
+    defaults = config["default"]
+    messages = String[]
+
+    # --author can repeat; ArgParse gives Vector{Any}/Vector{String}.
+    # Direct callers (tests, dispatch_command) may also pass a single String.
+    raw_authors = get(sub_args, "author", nothing)
+    author_inputs = if raw_authors isa AbstractVector
+        raw_authors
+    elseif raw_authors isa AbstractString && !isempty(raw_authors)
+        Any[raw_authors]
+    else
+        nothing
+    end
+    if author_inputs !== nothing && !isempty(author_inputs)
+        expanded = String[]
+        for a in author_inputs
+            for piece in split(String(a), ',')
+                stripped = strip(piece)
+                if !isempty(stripped)
+                    push!(expanded, String(stripped))
+                end
+            end
+        end
+        if length(expanded) == 1
+            defaults["author"] = expanded[1]
+            push!(messages, "Set default author: $(expanded[1])")
+        elseif length(expanded) > 1
+            defaults["author"] = expanded
+            push!(messages, "Set default author(s): $(join(expanded, ", "))")
+        end
+    end
+
+    # Simple scalar mappings (CLI key => config key)
+    scalar_map = (
+        ("user", "user"),
+        ("mail", "mail"),
+        ("license", "license_type"),
+        ("julia-version", "julia_version"),
+        ("mise-filename-base", "mise_filename_base"),
+    )
+    for (cli_key, cfg_key) in scalar_map
+        v = get(sub_args, cli_key, nothing)
+        if v !== nothing
+            defaults[cfg_key] = v
+            push!(messages, "Set default $(cfg_key): $v")
+        end
+    end
+
+    # --with-mise / --no-mise are mutually exclusive store_true flags
+    if get(sub_args, "with-mise", false) === true
+        defaults["with_mise"] = true
+        push!(messages, "Set default with_mise: true")
+    elseif get(sub_args, "no-mise", false) === true
+        defaults["with_mise"] = false
+        push!(messages, "Set default with_mise: false")
+    end
+
+    # Plugin options: any CLI key matching a known plugin name (case-insensitive)
+    canonical = _plugin_canonical_names()
+    for (key, value) in sub_args
+        # Skip already-handled keys and meta-keys
+        if key in ("author", "user", "mail", "license", "julia-version",
+                   "mise-filename-base", "with-mise", "no-mise", "config-file",
+                   "%COMMAND%")
+            continue
+        end
+        if !haskey(canonical, lowercase(String(key)))
+            continue
+        end
+        plugin_name = canonical[lowercase(String(key))]
+
+        # Possible shapes for `value`:
+        #   nothing          → option not specified
+        #   false            → :store_true flag, not specified
+        #   true             → :store_true flag, enable plugin with no options
+        #   ""               → nargs='?' specified without value: enable with defaults
+        #   "key=val ..."    → nargs='?' with KEY=VALUE bundle
+        if value === nothing || value === false
+            continue
+        elseif value === true
+            # Enabling an argumentless plugin via config — record empty section
+            existing = get(defaults, plugin_name, Dict{String,Any}())
+            if !(existing isa Dict)
+                existing = Dict{String,Any}()
+            end
+            defaults[plugin_name] = existing
+            push!(messages, "Enabled plugin: $plugin_name")
+        elseif value isa AbstractString
+            section = get(defaults, plugin_name, Dict{String,Any}())
+            if !(section isa Dict)
+                section = Dict{String,Any}()
+            end
+            if !isempty(value)
+                for (opt_key, opt_val) in _parse_plugin_kv_string(value)
+                    section[opt_key] = opt_val
+                    push!(messages, "Set default $plugin_name.$opt_key: $(repr(opt_val))")
+                end
+            end
+            defaults[plugin_name] = section
+            if isempty(value)
+                push!(messages, "Enabled plugin: $plugin_name")
+            end
+        end
+    end
+
+    return config, messages
+end
+
+"""
     execute(args::Dict{String, Any})::CommandResult
 
-Execute 'config' command with show/set subcommands.
+Execute the `config` command, dispatching to `show` or `set`.
 
-# Arguments
-- `args::Dict{String, Any}`: Parsed command-line arguments
-  - "%SUBCOMMAND%": Subcommand to execute ("show" or "set"), defaults to "show"
-  - Other keys: Configuration values for "set" subcommand
-
-# Returns
-- `CommandResult`: Result of command execution
-
-# Subcommands
-- `show`: Display current configuration in TOML format
-- `set`: Update configuration with new values
-
-# Examples
-```julia
-# Show current configuration
-result = ConfigCommand.execute(Dict("%SUBCOMMAND%" => "show"))
-
-# Set configuration values
-result = ConfigCommand.execute(Dict(
-    "%SUBCOMMAND%" => "set",
-    "author" => "Jane Doe",
-    "formatter.style" => "blue"
-))
-```
+The `args` dict is the parsed-args sub-tree for `config` produced by ArgParse.
+ArgParse exposes the chosen subcommand under `%COMMAND%`, with that
+subcommand's own arguments under `args[subcommand]`.
 """
 function execute(args::Dict{String,Any})::CommandResult
     try
-        # Default to "show" if no subcommand specified
-        subcommand = get(args, "%SUBCOMMAND%", "show")
+        # Determine subcommand. ArgParse uses `%COMMAND%`, but we keep
+        # `%SUBCOMMAND%` as a backward-compatible alias for direct callers.
+        subcommand = get(args, "%COMMAND%", get(args, "%SUBCOMMAND%", "show"))
+
+        # Sub-args may be nested (CLI path) or flat (legacy/test path).
+        sub_args = if haskey(args, subcommand) && args[subcommand] isa Dict
+            convert(Dict{String,Any}, args[subcommand])
+        else
+            args
+        end
+
+        custom_path = get(sub_args, "config-file", nothing)
 
         if subcommand == "show"
-            # Load and display configuration
-            config = ConfigManager.load_config()
-            formatted = format_config(config)
-            println(formatted)
+            config = ConfigManager.load_config(custom_path)
+            print(format_config(config))
             return CommandResult(success=true)
 
         elseif subcommand == "set"
-            # Load existing configuration
-            config = ConfigManager.load_config()
+            config = ConfigManager.load_config(custom_path)
 
-            # Update with new values
-            updated_config = update_config(config, args)
+            # CLI integration path: option keys come from ArgParse and are
+            # mapped explicitly. We still support a legacy direct-dict shape
+            # by falling back to update_config when no recognised CLI keys
+            # are present.
+            cli_keys = ("author", "user", "mail", "license", "julia-version",
+                        "mise-filename-base", "with-mise", "no-mise")
+            uses_cli_shape = any(haskey(sub_args, k) for k in cli_keys) ||
+                             any(haskey(_plugin_canonical_names(), lowercase(String(k)))
+                                 for k in keys(sub_args))
 
-            # Save updated configuration
-            ConfigManager.save_config(updated_config)
-
-            return CommandResult(success=true, message="Configuration updated successfully")
+            if uses_cli_shape
+                config, msgs = _apply_set_args(config, sub_args)
+                ConfigManager.save_config(config, custom_path)
+                for m in msgs
+                    println(m)
+                end
+                return CommandResult(success=true,
+                                     message="Configuration updated successfully")
+            else
+                updated_config = update_config(config, sub_args)
+                ConfigManager.save_config(updated_config, custom_path)
+                return CommandResult(success=true,
+                                     message="Configuration updated successfully")
+            end
 
         else
-            # Unknown subcommand
             return CommandResult(
                 success=false,
                 message="Unknown config subcommand: $subcommand"
@@ -171,7 +358,6 @@ function execute(args::Dict{String,Any})::CommandResult
         end
 
     catch e
-        # Handle errors gracefully
         return CommandResult(
             success=false,
             message="Error executing config command: $(sprint(showerror, e))"
