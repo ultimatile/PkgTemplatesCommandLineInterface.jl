@@ -268,22 +268,13 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
         end
         plugin_name = canonical[lowercase(key_str)]
 
-        # Possible shapes for `value`:
-        #   nothing          → option not specified
-        #   false            → :store_true flag, not specified
-        #   true             → :store_true flag, enable plugin with no options
-        #   ""               → nargs='?' specified without value: enable with defaults
-        #   "key=val ..."    → nargs='?' with KEY=VALUE bundle
-        if value === nothing || value === false
+        # ArgParse registers config-set plugin options with `nargs='?'`,
+        # `constant=""`, and `default=nothing`, so `value` is one of:
+        #   nothing       → option not specified
+        #   ""            → specified without a value; enable plugin with defaults
+        #   "key=val ..." → specified with a KEY=VALUE bundle
+        if value === nothing
             continue
-        elseif value === true
-            # Enabling an argumentless plugin via config — record empty section
-            existing = get(defaults, plugin_name, Dict{String,Any}())
-            if !(existing isa Dict)
-                existing = Dict{String,Any}()
-            end
-            defaults[plugin_name] = existing
-            push!(messages, "Enabled plugin: $plugin_name")
         elseif value isa AbstractString
             section = get(defaults, plugin_name, Dict{String,Any}())
             if !(section isa Dict)
