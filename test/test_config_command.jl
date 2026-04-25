@@ -461,6 +461,26 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
             end
         end
 
+        @testset "config-file is not persisted as a [default] entry" begin
+            # Direct callers may pass only `config-file` to redirect the
+            # destination; that key must never end up under [default].
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "redirect.toml")
+                args = Dict{String,Any}(
+                    "%SUBCOMMAND%" => "set",
+                    "config-file" => custom_path,
+                    "formatter.style" => "blue",
+                )
+                @test ConfigCommand.execute(args).success == true
+                cfg = TOML.parsefile(custom_path)
+                @test !haskey(cfg["default"], "config-file")
+                @test cfg["default"]["formatter"]["style"] == "blue"
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
         @testset "mixed flat dict (CLI key + dotted key) round-trips both" begin
             # Direct callers still pass the legacy flat shape; the dotted key
             # used to be silently dropped once the CLI-style branch was taken.

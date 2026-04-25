@@ -40,7 +40,7 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
     end
 
     for (key, value) in new_values
-        if key in ("show", "set", "%COMMAND%", "%SUBCOMMAND%")
+        if key in ("show", "set", "%COMMAND%", "%SUBCOMMAND%", "config-file")
             continue
         end
 

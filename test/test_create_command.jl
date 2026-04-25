@@ -213,9 +213,13 @@ import PkgTemplatesCommandLineInterface.CreateCommand
         end
 
         @testset "explicit CLI License plugin overrides license_type promotion" begin
-            # --license CLI shape isn't reproducible from the test args dict
-            # directly (it goes through plugin_options), so we set it via the
-            # CLI args dict that parse_plugin_options expects.
+            # The license_type → License-plugin promotion is guarded by
+            # `!haskey(plugin_options, "License")` so a CLI-supplied License
+            # keeps precedence. parse_plugin_options recognises Vector-shaped
+            # plugin keys, so we drive it with the same shape ArgParse will
+            # emit once issue #7 (key prefix mismatch) is resolved. Until
+            # then this test exercises the precedence logic in execute()
+            # using the recognised "--License" key form directly.
             result, out = _dry_run_with_config(
                 Dict{String,Any}("license_type" => "MIT"),
                 Dict{String,Any}("--License" => ["name=Apache"]),
