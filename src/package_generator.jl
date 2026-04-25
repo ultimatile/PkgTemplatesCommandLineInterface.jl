@@ -104,7 +104,23 @@ function instantiate_plugins(plugin_options::Dict{String,Dict{String,Any}})::Vec
 
         # Convert types as needed
         processed_options = Dict{String,Any}()
+        plugin_fields = fieldnames(PluginType)
         for (k, v) in options
+            sym = Symbol(k)
+            # Wrap stored strings into PkgTemplates.Secret when the target
+            # field demands it (e.g., TagBot.token, TagBot.ssh). PkgTemplates
+            # does not auto-convert, so we'd otherwise hit a MethodError on
+            # plugin construction. Skip when the field doesn't exist or
+            # already accepts a string — we don't want to wrap plain values
+            # like License.name accidentally.
+            if v isa AbstractString && sym in plugin_fields
+                ftype = fieldtype(PluginType, sym)
+                if PkgTemplates.Secret <: ftype && !(String <: ftype)
+                    processed_options[k] = PkgTemplates.Secret(String(v))
+                    continue
+                end
+            end
+
             if k == "ignore" && v isa String
                 processed_options[k] = split(v, ',')
             elseif k == "version" && v isa String
