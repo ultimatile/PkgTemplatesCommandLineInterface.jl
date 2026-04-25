@@ -126,4 +126,125 @@ import PkgTemplatesCommandLineInterface.CreateCommand
     end
 
     # Note: dry-run mode and error handling are tested in test_integration.jl
+
+    # Helper: run `create --dry-run` against a temporary XDG config home that
+    # already contains the supplied [default] section, capture stdout, and
+    # return (result, output_string). Restores XDG_CONFIG_HOME on exit.
+    function _dry_run_with_config(default_config::Dict{String,Any}, cli_args::Dict{String,Any})
+        config_dir = mktempdir()
+        out_dir = mktempdir()
+        original_xdg = get(ENV, "XDG_CONFIG_HOME", nothing)
+        try
+            ENV["XDG_CONFIG_HOME"] = config_dir
+            ConfigManager = PkgTemplatesCommandLineInterface.ConfigManager
+            ConfigManager.save_config(Dict{String,Any}("default" => default_config))
+
+            args = Dict{String,Any}(
+                "package_name" => "ContractPkg",
+                "output-dir" => out_dir,
+                "dry-run" => true,
+            )
+            merge!(args, cli_args)
+
+            pipe = Pipe()
+            result = redirect_stdout(pipe) do
+                CreateCommand.execute(args)
+            end
+            close(pipe.in)
+            output = read(pipe.out, String)
+            close(pipe.out)
+            return result, output
+        finally
+            if original_xdg === nothing
+                delete!(ENV, "XDG_CONFIG_HOME")
+            else
+                ENV["XDG_CONFIG_HOME"] = original_xdg
+            end
+            rm(config_dir; recursive=true, force=true)
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    # Contract: shapes that `config set` writes to the [default] section reach
+    # `PkgTemplates.Template` in a form the constructor accepts. Each test
+    # below corresponds to a fix from the codex/Copilot review cycle and
+    # protects against the same class of bug returning.
+    @testset "execute() consumes config defaults" begin
+        @testset "Vector author flows as authors=Vector{String}" begin
+            # Regression: `[author]` over a Vector produced Vector{Vector{String}}
+            # and PkgTemplates rejected it.
+            result, out = _dry_run_with_config(
+                Dict{String,Any}("author" => ["Alice", "Bob"]),
+                Dict{String,Any}(),
+            )
+            @test result.success == true
+            @test occursin("authors", out)
+            @test occursin("Alice", out) && occursin("Bob", out)
+            # Authors field must NOT be a nested vector representation
+            @test !occursin("[[\"Alice\"", out)
+        end
+
+        @testset "mail appended only when author lacks <email>" begin
+            # Author without email gets `<mail>` appended; an author that
+            # already carries `<...>` is left untouched.
+            result, out = _dry_run_with_config(
+                Dict{String,Any}(
+                    "author" => ["Alice", "Bob <bob@elsewhere.io>"],
+                    "mail" => "team@example.com",
+                ),
+                Dict{String,Any}(),
+            )
+            @test result.success == true
+            @test occursin("Alice <team@example.com>", out)
+            @test occursin("Bob <bob@elsewhere.io>", out)
+            @test !occursin("Bob <team@example.com>", out)
+        end
+
+        @testset "license_type promoted to License plugin" begin
+            # license_type is the persistence key; create must lift it into
+            # plugin_options["License"] so PackageGenerator picks it up.
+            result, out = _dry_run_with_config(
+                Dict{String,Any}("license_type" => "MIT"),
+                Dict{String,Any}(),
+            )
+            @test result.success == true
+            @test occursin("Plugin: License", out)
+            @test occursin("name = MIT", out)
+        end
+
+        @testset "explicit CLI License plugin overrides license_type promotion" begin
+            # --license CLI shape isn't reproducible from the test args dict
+            # directly (it goes through plugin_options), so we set it via the
+            # CLI args dict that parse_plugin_options expects.
+            result, out = _dry_run_with_config(
+                Dict{String,Any}("license_type" => "MIT"),
+                Dict{String,Any}("--License" => ["name=Apache"]),
+            )
+            @test result.success == true
+            # CLI value wins; the config license_type must not be applied.
+            @test occursin("name = Apache", out)
+            @test !occursin("name = MIT", out)
+        end
+
+        @testset "--with-mise CLI overrides config with_mise=false" begin
+            # CLI flags arrive under "with-mise"/"no-mise" (dashes); the
+            # persisted key is "with_mise" (underscore). Without normalization
+            # the explicit override is silently ignored.
+            result, out = _dry_run_with_config(
+                Dict{String,Any}("with_mise" => false),
+                Dict{String,Any}("with-mise" => true),
+            )
+            @test result.success == true
+            @test occursin("with_mise = true", out)
+        end
+
+        @testset "--no-mise CLI overrides config with_mise=true" begin
+            result, out = _dry_run_with_config(
+                Dict{String,Any}("with_mise" => true),
+                Dict{String,Any}("no-mise" => true),
+            )
+            @test result.success == true
+            @test occursin("with_mise = false", out)
+        end
+    end
 end

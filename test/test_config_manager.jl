@@ -248,4 +248,77 @@ include("../src/config_manager.jl")
             @test merged["key"] == "value"
         end
     end
+
+    # Contract: when a custom_path is supplied (--config-file), all of
+    # get_config_path/load_config/save_config must operate on that path
+    # without touching the default XDG location.
+    @testset "custom_path contract" begin
+        @testset "get_config_path expands and absolutizes a custom path" begin
+            tmpdir = mktempdir()
+            try
+                rel_path = joinpath(tmpdir, "nested", "jtc.toml")
+                resolved = ConfigManager.get_config_path(rel_path)
+                @test isabspath(resolved)
+                @test resolved == abspath(rel_path)
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "save_config(cfg, custom_path) creates parent dirs as needed" begin
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "deep", "nested", "jtc.toml")
+                cfg = Dict{String,Any}("default" => Dict{String,Any}("author" => "Z"))
+                ConfigManager.save_config(cfg, custom_path)
+                @test isfile(custom_path)
+                parsed = TOML.parsefile(custom_path)
+                @test parsed["default"]["author"] == "Z"
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "load_config(custom_path) reads the custom file" begin
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "explicit.toml")
+                expected = Dict{String,Any}("default" => Dict{String,Any}("user" => "u"))
+                ConfigManager.save_config(expected, custom_path)
+                loaded = ConfigManager.load_config(custom_path)
+                @test loaded["default"]["user"] == "u"
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "custom_path round-trip leaves XDG default untouched" begin
+            xdg_dir = mktempdir()
+            custom_dir = mktempdir()
+            original_xdg = get(ENV, "XDG_CONFIG_HOME", nothing)
+            try
+                ENV["XDG_CONFIG_HOME"] = xdg_dir
+                custom_path = joinpath(custom_dir, "jtc.toml")
+                cfg = Dict{String,Any}("default" =>
+                    Dict{String,Any}("author" => "CustomOnly"))
+                ConfigManager.save_config(cfg, custom_path)
+
+                # Default XDG path must NOT have been written.
+                xdg_path = joinpath(xdg_dir, "jtc", "config.toml")
+                @test !isfile(xdg_path)
+
+                # Round-trip on the custom path stays consistent.
+                @test ConfigManager.load_config(custom_path)["default"]["author"] ==
+                      "CustomOnly"
+            finally
+                if original_xdg === nothing
+                    delete!(ENV, "XDG_CONFIG_HOME")
+                else
+                    ENV["XDG_CONFIG_HOME"] = original_xdg
+                end
+                rm(xdg_dir; recursive=true, force=true)
+                rm(custom_dir; recursive=true, force=true)
+            end
+        end
+    end
 end

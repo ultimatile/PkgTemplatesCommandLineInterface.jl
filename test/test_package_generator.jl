@@ -145,4 +145,61 @@ include("../src/package_generator.jl")
         # Should throw an error (either PluginNotFoundError or caught by instantiate_plugins)
         @test_throws Exception PackageGenerator.instantiate_plugins(plugin_options)
     end
+
+    # Contract: instantiate_plugins reflects on each plugin's field types and
+    # adapts the persisted-string representation to whatever the constructor
+    # demands. Each test below corresponds to a class of MethodError the
+    # earlier review cycle surfaced (TagBot Secret, License.name spurious wrap).
+    @testset "instantiate_plugins type adaptation contracts" begin
+        @testset "Secret-typed field accepts a stored String" begin
+            # PkgTemplates.TagBot has token::Secret. Without auto-wrapping the
+            # constructor raises MethodError when reading config-saved tokens.
+            plugin_options = Dict{String,Dict{String,Any}}(
+                "TagBot" => Dict{String,Any}("token" => "MY_TOKEN")
+            )
+            plugins = PackageGenerator.instantiate_plugins(plugin_options)
+            @test length(plugins) == 1
+            @test plugins[1] isa PkgTemplates.TagBot
+            @test plugins[1].token isa PkgTemplates.Secret
+        end
+
+        @testset "Union{Nothing,Secret} fields also accept stored Strings" begin
+            # TagBot.ssh / .gpg are Union{Nothing,Secret}; the wrapping check
+            # must use `Secret <: ftype` so these still get adapted.
+            plugin_options = Dict{String,Dict{String,Any}}(
+                "TagBot" => Dict{String,Any}(
+                    "token" => "TKN",
+                    "ssh" => "SSH_KEY",
+                )
+            )
+            plugins = PackageGenerator.instantiate_plugins(plugin_options)
+            @test plugins[1].ssh isa PkgTemplates.Secret
+        end
+
+        @testset "String-typed fields are NOT wrapped in Secret" begin
+            # Git has a String-typed `branch` field. A naive `Secret <: ftype`
+            # check that fell back to Any when fieldtype lookup failed would
+            # wrap the value into Secret and break the kwarg. Guard against
+            # that by exercising a real String field on a real plugin.
+            plugin_options = Dict{String,Dict{String,Any}}(
+                "Git" => Dict{String,Any}("branch" => "main")
+            )
+            plugins = PackageGenerator.instantiate_plugins(plugin_options)
+            @test plugins[1] isa PkgTemplates.Git
+            @test plugins[1].branch == "main"
+            @test plugins[1].branch isa AbstractString
+        end
+
+        @testset "kwarg-only license name is not coerced into Secret" begin
+            # License accepts a `name` kwarg even though it has no `name`
+            # field; this is the case that originally over-triggered the
+            # Secret wrap when `fieldtype` defaulted to `Any`. The contract
+            # is that License instantiation must succeed unchanged.
+            plugin_options = Dict{String,Dict{String,Any}}(
+                "License" => Dict{String,Any}("name" => "MIT")
+            )
+            plugins = PackageGenerator.instantiate_plugins(plugin_options)
+            @test plugins[1] isa PkgTemplates.License
+        end
+    end
 end
