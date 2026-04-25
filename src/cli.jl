@@ -197,15 +197,34 @@ function add_dynamic_plugin_options!(target;
             continue
         end
         option_name = "--$(lowercase(plugin_name))"
+        is_argless = PluginDiscovery.is_argumentless_plugin(plugin)
 
-        if argumentless_as_flag && PluginDiscovery.is_argumentless_plugin(plugin)
-            ArgParse.add_arg_table!(target,
-                [option_name],
-                Dict(
-                    :action => :store_true,
-                    :help => "Enable $plugin_name plugin"
-                ))
+        if argumentless_as_flag
+            # `create` mode: keep the legacy registration shape so
+            # `CreateCommand.parse_plugin_options` (which expects Vector
+            # values for plugin keys) keeps working for any future
+            # non-argumentless plugin.
+            if is_argless
+                ArgParse.add_arg_table!(target,
+                    [option_name],
+                    Dict(
+                        :action => :store_true,
+                        :help => "Enable $plugin_name plugin"
+                    ))
+            else
+                ArgParse.add_arg_table!(target,
+                    [option_name],
+                    Dict(
+                        :action => :append_arg,
+                        :nargs => '*',
+                        :metavar => "KEY=VALUE",
+                        :help => "Options for $plugin_name plugin"
+                    ))
+            end
         else
+            # `config set` mode: every plugin accepts an optional KEY=VALUE
+            # bundle (`--plugin` enables defaults; `--plugin "k=v ..."`
+            # supplies options), matching the Python port.
             ArgParse.add_arg_table!(target,
                 [option_name],
                 Dict(

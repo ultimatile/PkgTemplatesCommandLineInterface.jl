@@ -357,8 +357,9 @@ function execute(args::Dict{String,Any})::CommandResult
             # are present.
             cli_keys = ("author", "user", "mail", "license", "julia-version",
                         "mise-filename-base", "with-mise", "no-mise")
+            plugin_canonical_names = _plugin_canonical_names()
             uses_cli_shape = any(haskey(sub_args, k) for k in cli_keys) ||
-                             any(haskey(_plugin_canonical_names(), lowercase(String(k)))
+                             any(haskey(plugin_canonical_names, lowercase(String(k)))
                                  for k in keys(sub_args))
 
             if uses_cli_shape
