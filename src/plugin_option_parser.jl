@@ -226,10 +226,19 @@ function _reject_comma_separated_kv(key::AbstractString,
         bundle_inner = join(vcat(["$key=$(pieces[1])"], pieces[2:end]), " ")
         bundle_form = "$flag \"$bundle_inner\""
 
+        # For shape_split, what the user actually typed spanned both
+        # tokens (e.g. `aqua=true, project=true`). Show the reconstructed
+        # combined input so they can match it against their command,
+        # instead of just the partial RHS (`true,`) of the first token.
+        offending = if shape_split
+            string(value, " ", next_part)
+        else
+            value
+        end
         # Construct the message without leading whitespace so handle_error
         # paths display it cleanly.
         msg = string(
-            "Plugin option value ", repr(value), " for key ", repr(key),
+            "Plugin option value ", repr(offending), " for key ", repr(key),
             " looks like a comma-separated list of KEY=VALUE pairs, ",
             "which is not supported. Please use one of:\n",
             "  ", repeat_form, "\n",

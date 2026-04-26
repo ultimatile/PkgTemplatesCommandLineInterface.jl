@@ -9,7 +9,7 @@ Implements the `create` command execution logic, including:
 """
 module CreateCommand
 
-using ..PkgTemplatesCommandLineInterface: CommandResult, PackageGenerationError
+using ..PkgTemplatesCommandLineInterface: CommandResult, JTCError, PackageGenerationError
 import ..ConfigManager
 import ..PackageGenerator
 import ..PluginDiscovery
@@ -260,12 +260,22 @@ end
     handle_error(e::Exception)::CommandResult
 
 Convert exceptions to user-friendly CommandResult.
+
+`JTCError` subtypes carry a curated `message` field that is already
+written for the user; surface it directly so we do not double-prefix
+the error type or wrap the message in noise like
+`Error: PluginOptionFormatError:`.
 """
 function handle_error(e::Exception)::CommandResult
     if e isa PackageGenerationError
         return CommandResult(
             success=false,
             message="Package generation failed: $(e.message)"
+        )
+    elseif e isa JTCError
+        return CommandResult(
+            success=false,
+            message=e.message
         )
     else
         return CommandResult(

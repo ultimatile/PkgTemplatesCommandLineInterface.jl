@@ -485,8 +485,11 @@ import PkgTemplatesCommandLineInterface.CreateCommand
 
         @testset "issue #5: repeat-flag and quoted bundle produce the same Dict" begin
             # Cross-form equivalence: the same intent expressed two ways
-            # must reach PackageGenerator with byte-identical plugin
-            # options. We compare Plugin: Git sections of both runs.
+            # must reach PackageGenerator with the same plugin options.
+            # We extract the Plugin: Git block of each run and compare
+            # the parsed key=value pairs as a Set so the test is robust
+            # against Dict iteration order (which is not stable across
+            # Julia sessions for the printed dry-run plan).
             _, out_repeat = _e2e_dry_run(
                 ["create", "E2EPkg", "--user", "u",
                  "--git", "ssh=true",
@@ -496,15 +499,21 @@ import PkgTemplatesCommandLineInterface.CreateCommand
                 ["create", "E2EPkg", "--user", "u",
                  "--git", "ssh=true manifest=false"],
             )
-            # Extract the Plugin: Git block (between `Plugin: Git` and the
-            # next `Plugin:` marker, or end of output). Trim per-run noise
-            # (output dirs, etc.) by only comparing that block.
-            function _git_section(s::AbstractString)
+
+            function _git_section_pairs(s::AbstractString)
                 m = match(r"Plugin: Git\n((?:    [^\n]*\n)*)", s)
-                m === nothing ? "" : m.captures[1]
+                m === nothing && return Set{String}()
+                # Each line in the block is "    key = value"; strip
+                # the leading indent and collect into a Set so order
+                # does not affect equality.
+                lines = split(rstrip(m.captures[1], '\n'), '\n')
+                return Set(strip.(lines))
             end
-            @test _git_section(out_repeat) == _git_section(out_bundle)
-            @test !isempty(_git_section(out_repeat))
+
+            pairs_repeat = _git_section_pairs(out_repeat)
+            pairs_bundle = _git_section_pairs(out_bundle)
+            @test !isempty(pairs_repeat)
+            @test pairs_repeat == pairs_bundle
         end
 
         @testset "issue #5: comma-separated KEY=VALUE produces friendly error" begin

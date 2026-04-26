@@ -306,6 +306,12 @@ function execute(args::Dict{String,Any})::CommandResult
         end
 
     catch e
+        # JTCError messages are user-facing strings already; surface them
+        # directly so the friendly text is not buried under
+        # "Error executing config command: PluginOptionFormatError:" noise.
+        if e isa JTCError
+            return CommandResult(success=false, message=e.message)
+        end
         return CommandResult(
             success=false,
             message="Error executing config command: $(sprint(showerror, e))"
