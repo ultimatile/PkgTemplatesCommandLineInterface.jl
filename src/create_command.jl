@@ -50,14 +50,17 @@ Translate CLI plugin options from `args` into the
 `PackageGenerator.create_package` consumes.
 
 ArgParse stores plugin option keys as the lowercase plugin name (no `--`
-prefix). With the unified `nargs='?', constant="", default=nothing`
+prefix). With the `:append_arg, nargs='?', constant="", default=nothing`
 registration, the value is one of:
-- `nothing`           → `--<plugin>` not supplied; skip.
-- `""`                → `--<plugin>` supplied without a value; enable
-  the plugin with default options (empty section).
-- `"k1=v1 k2=v2 ..."` → `--<plugin> "..."`; route through
-  `PluginOptionParser.parse_kv_string` so quoted strings, bracket arrays,
-  and version-like values parse identically to the `config set` path.
+- `nothing`     → `--<plugin>` not supplied; skip.
+- `String[]`    → `--<plugin>` not supplied (alternate ArgParse default
+  for `:append_arg`); skip.
+- `Vector`      → one element per `--<plugin>` invocation. Each element
+  is `""` (bare flag → use defaults) or a `"k=v ..."` bundle. Elements
+  are merged left-to-right with last-wins on duplicate keys, matching
+  POSIX/GNU/clig.dev convention for repeat-flag aggregation.
+- `String`      → legacy direct-call shape kept so tests / direct callers
+  can still pass a single bundle. Equivalent to a 1-element vector.
 
 Output keys are canonicalised against `PluginDiscovery.canonical_names()`
 so PkgTemplates plugin types resolve via `getfield(PkgTemplates, Symbol(...))`.
@@ -76,6 +79,15 @@ function parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
             section = isempty(value) ?
                 Dict{String, Any}() :
                 PluginOptionParser.parse_kv_string(value)
+            plugin_options[canonical_name] = section
+        elseif value isa AbstractVector
+            isempty(value) && continue
+            section = Dict{String, Any}()
+            for elem in value
+                elem isa AbstractString || continue
+                isempty(elem) && continue
+                merge!(section, PluginOptionParser.parse_kv_string(elem))
+            end
             plugin_options[canonical_name] = section
         end
     end

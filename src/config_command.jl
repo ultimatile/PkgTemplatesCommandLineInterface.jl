@@ -192,28 +192,47 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
         end
         plugin_name = canonical[lowercase(key_str)]
 
-        # ArgParse registers config-set plugin options with `nargs='?'`,
-        # `constant=""`, and `default=nothing`, so `value` is one of:
-        #   nothing       → option not specified
-        #   ""            → specified without a value; enable plugin with defaults
-        #   "key=val ..." → specified with a KEY=VALUE bundle
-        if value === nothing
-            continue
+        # ArgParse registers config-set plugin options with `:append_arg`,
+        # `nargs='?'`, `constant=""`, `default=nothing`, so `value` is one of:
+        #   nothing       → option not specified (or [] under :append_arg default)
+        #   ""            → single bare flag; enable plugin with defaults
+        #   "k=v ..."     → single bundle (legacy shape from direct callers)
+        #   Vector        → one element per `--<plugin>` invocation; merge
+        #                   left-to-right with last-wins on duplicate keys
+        section = get(defaults, plugin_name, Dict{String,Any}())
+        if !(section isa Dict)
+            section = Dict{String,Any}()
+        end
+
+        elements = if value === nothing
+            String[]
         elseif value isa AbstractString
-            section = get(defaults, plugin_name, Dict{String,Any}())
-            if !(section isa Dict)
-                section = Dict{String,Any}()
-            end
-            if !isempty(value)
-                for (opt_key, opt_val) in PluginOptionParser.parse_kv_string(value)
+            String[String(value)]
+        elseif value isa AbstractVector
+            String[String(e) for e in value if e isa AbstractString]
+        else
+            String[]
+        end
+
+        isempty(elements) && continue
+
+        any_value_set = false
+        any_bare_flag = false
+        for elem in elements
+            if isempty(elem)
+                any_bare_flag = true
+            else
+                for (opt_key, opt_val) in PluginOptionParser.parse_kv_string(elem)
                     section[opt_key] = opt_val
                     push!(messages, "Set default $plugin_name.$opt_key: $(repr(opt_val))")
+                    any_value_set = true
                 end
             end
-            defaults[plugin_name] = section
-            if isempty(value)
-                push!(messages, "Enabled plugin: $plugin_name")
-            end
+        end
+        defaults[plugin_name] = section
+        if any_bare_flag && !any_value_set
+            # Bare `--plugin` only (no KV bundle) → record the enable.
+            push!(messages, "Enabled plugin: $plugin_name")
         end
     end
 

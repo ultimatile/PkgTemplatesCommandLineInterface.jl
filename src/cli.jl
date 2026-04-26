@@ -229,11 +229,12 @@ function add_dynamic_plugin_options!(target;
             ArgParse.add_arg_table!(target,
                 [option_name],
                 Dict(
+                    :action => :append_arg,
                     :nargs => '?',
                     :constant => "",
                     :default => nothing,
                     :metavar => "KEY=VALUE",
-                    :help => "Enable $plugin_name plugin. Omit value to use defaults, or pass space-separated KEY=VALUE pairs as one shell-quoted string (e.g. --$(lowercase(plugin_name)) \"k1=v1 k2=v2\"). Repeating the flag does not append."
+                    :help => "Enable $plugin_name plugin. Omit value to use defaults; pass KEY=VALUE pairs as one shell-quoted string (--$(lowercase(plugin_name)) \"k1=v1 k2=v2\") or repeat the flag (--$(lowercase(plugin_name)) k1=v1 --$(lowercase(plugin_name)) k2=v2). Comma-separated KEY=VALUE is rejected."
                 ))
         end
     end
