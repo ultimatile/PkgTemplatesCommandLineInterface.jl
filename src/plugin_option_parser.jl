@@ -130,9 +130,13 @@ end
 """
     parse_kv_string(s::AbstractString)::Dict{String,Any}
 
-Parse a `key=value key2=value2` bundle into a typed Dict. Tokens without
-`=` are silently dropped; whitespace around keys and values is stripped;
-each value is run through `parse_value` for type coercion.
+Parse a whitespace-separated `key=value key2=value2` bundle into a typed
+Dict. Only tokens that already contain `=` are considered; other tokens
+are silently dropped. Within each such token, whitespace around the key
+and value is stripped before the value is passed to `parse_value` for
+type coercion. This means `key=value` must remain a single token —
+whitespace around `=` (for example, `k= v` or `k =v`) will split the
+pair across tokens and will not be parsed as a single option.
 
 Returns an empty `Dict` for an empty input or a string with no `=` tokens.
 """
