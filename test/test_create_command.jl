@@ -419,10 +419,12 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             @test result.success == true
             @test occursin("Plugin: Git", out)
             # The dry-run prints `ignore = [".DS_Store", ".vscode"]` for
-            # Vector values; check both elements appear under the Git
-            # plugin section.
-            @test occursin(".DS_Store", out)
-            @test occursin(".vscode", out)
+            # Vector values; assert the array formatting so this fails
+            # if the value is silently flattened into a single string
+            # such as ".DS_Store,.vscode".
+            @test occursin("ignore = [", out)
+            @test occursin("\".DS_Store\"", out)
+            @test occursin("\".vscode\"", out)
         end
 
         @testset "issue #9: version-like value stays a String" begin
