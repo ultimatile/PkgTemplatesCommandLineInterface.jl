@@ -46,7 +46,8 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
 
         if contains(key, '.')
             parts = split(key, '.', limit=2)
-            section, option = parts[1], parts[2]
+            section = _resolve_section_target(updated["default"], String(parts[1]))
+            option = String(parts[2])
             section_dict = get!(updated["default"], section, Dict{String,Any}())
             if !(section_dict isa Dict)
                 section_dict = Dict{String,Any}()
@@ -59,6 +60,26 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
     end
 
     return updated
+end
+
+# Pick where to write a dotted-section update. Prefer an existing section
+# (case-insensitive match) so legacy lowercase entries keep being updated
+# in place; otherwise fall back to the canonical PkgTemplates plugin name
+# so new entries land under the form CreateCommand recognises (`Formatter`,
+# not `formatter`). For non-plugin sections we keep the literal name.
+function _resolve_section_target(defaults::Dict, section::AbstractString)::String
+    s = String(section)
+    if haskey(defaults, s) && defaults[s] isa Dict
+        return s
+    end
+    for k in keys(defaults)
+        if k isa AbstractString && lowercase(k) == lowercase(s) &&
+           defaults[k] isa Dict
+            return String(k)
+        end
+    end
+    canonical = _plugin_canonical_names()
+    return get(canonical, lowercase(s), s)
 end
 
 """
@@ -249,10 +270,12 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
 
         # Support dotted legacy updates that don't go through the plugin
         # canonical mapping. Preserves prior `update_config` behaviour for
-        # mixed CLI/legacy callers.
+        # mixed CLI/legacy callers, and resolves the section target so
+        # plugin defaults reach the create flow under the expected key.
         if contains(key_str, '.')
             parts = split(key_str, '.', limit=2)
-            section, option = String(parts[1]), String(parts[2])
+            section = _resolve_section_target(defaults, String(parts[1]))
+            option = String(parts[2])
             section_dict = get(defaults, section, nothing)
             if !(section_dict isa Dict)
                 section_dict = Dict{String,Any}()

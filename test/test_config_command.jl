@@ -126,9 +126,11 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
 
             updated = ConfigCommand.update_config(existing_config, new_values)
 
-            @test haskey(updated["default"], "git")
-            @test updated["default"]["git"]["manifest"] == true
-            @test updated["default"]["git"]["ssh"] == false
+            # Dotted plugin names land under their canonical PkgTemplates form
+            # (`Git`, not `git`) so CreateCommand picks them up as a plugin.
+            @test haskey(updated["default"], "Git")
+            @test updated["default"]["Git"]["manifest"] == true
+            @test updated["default"]["Git"]["ssh"] == false
         end
 
         @testset "ignores command-related keys" begin
@@ -475,7 +477,7 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
                 @test ConfigCommand.execute(args).success == true
                 cfg = TOML.parsefile(custom_path)
                 @test !haskey(cfg["default"], "config-file")
-                @test cfg["default"]["formatter"]["style"] == "blue"
+                @test cfg["default"]["Formatter"]["style"] == "blue"
             finally
                 rm(tmpdir; recursive=true, force=true)
             end
@@ -496,7 +498,9 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
                 @test ConfigCommand.execute(args).success == true
                 cfg = ConfigCommand.ConfigManager.load_config()
                 @test cfg["default"]["author"] == "A"
-                @test cfg["default"]["formatter"]["style"] == "blue"
+                # Section name is canonicalized so the entry is reachable by
+                # CreateCommand's plugin extraction.
+                @test cfg["default"]["Formatter"]["style"] == "blue"
             finally
                 if original_xdg === nothing
                     delete!(ENV, "XDG_CONFIG_HOME")

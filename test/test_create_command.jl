@@ -250,5 +250,21 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             @test result.success == true
             @test occursin("with_mise = false", out)
         end
+
+        @testset "dotted plugin defaults reach create as plugin options" begin
+            # Regression: `formatter.style => blue` used to be persisted under
+            # the literal lowercase `formatter` key, but create only treats
+            # capitalized sections as plugin options. Section canonicalization
+            # closes the loop so dot-notation defaults end up as Plugin options.
+            result, out = _dry_run_with_config(
+                Dict{String,Any}(
+                    "Formatter" => Dict{String,Any}("style" => "blue"),
+                ),
+                Dict{String,Any}(),
+            )
+            @test result.success == true
+            @test occursin("Plugin: Formatter", out)
+            @test occursin("style = blue", out)
+        end
     end
 end
