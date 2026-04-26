@@ -166,9 +166,11 @@ Add dynamic plugin options (retrieved from PkgTemplates.jl at runtime)
 
 # Implementation Details
 - Retrieves all plugin types via `PluginDiscovery.get_plugins()`
-- Flag options (argumentless plugins) use `--srcdir` format
-- Key-value options (plugins with arguments) use `--formatter style=blue` format
-- License is skipped because `--license` is registered as an explicit value option
+- Each plugin is registered as `--<lowercase>` accepting an optional
+  space-separated KEY=VALUE string. `--<plugin>` alone enables the plugin
+  with default options; `--<plugin> "k=v ..."` supplies options.
+- License is skipped on the `config set` side because `--license` is
+  registered there as an explicit value option.
 """
 function add_dynamic_plugin_options!(settings::ArgParseSettings)::Nothing
     # Both `create` and `config set` use the same shape: every plugin accepts
