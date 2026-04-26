@@ -76,9 +76,10 @@ Build a `lowercase => canonical` lookup for every plugin type discovered via
 ArgParse stores as lowercase, e.g. `"git"`) can be mapped back to the names
 PkgTemplates expects (`"Git"`).
 
-Returns an empty `Dict` when plugin discovery fails (e.g. PkgTemplates is not
-available in the current environment); callers must treat unknown plugin keys
-as a no-op rather than an error to preserve graceful degradation.
+Returns an empty `Dict` when plugin discovery throws at runtime (for example,
+if `get_plugins()` / `PkgTemplates.concretes(PkgTemplates.Plugin)` raises
+while enumerating plugin types). Callers must treat unknown plugin keys as
+a no-op rather than an error to preserve graceful degradation.
 """
 function canonical_names()::Dict{String,String}
     plugin_names = String[]

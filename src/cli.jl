@@ -231,7 +231,7 @@ function add_dynamic_plugin_options!(target;
                     :constant => "",
                     :default => nothing,
                     :metavar => "KEY=VALUE",
-                    :help => "Enable $plugin_name plugin (omit value to use defaults, or supply KEY=VALUE pairs)"
+                    :help => "Enable $plugin_name plugin. Omit value to use defaults, or pass space-separated KEY=VALUE pairs as one shell-quoted string (e.g. --$(lowercase(plugin_name)) \"k1=v1 k2=v2\"). Repeating the flag does not append."
                 ))
         end
     end
