@@ -213,5 +213,48 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
             @test PluginOptionParser.parse_kv_string("=junk k=v") ==
                   Dict{String,Any}("k" => "v")
         end
+
+        # Issue #5 contract: comma-separated KEY=VALUE is the clig.dev
+        # anti-pattern that previously produced silent corruption (the
+        # second pair was promoted into a String[] under the first key).
+        # The parser must reject it with a friendly message, while still
+        # accepting legitimate uses of comma in values.
+        @testset "issue #5: comma-separated KEY=VALUE rejected" begin
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "aqua=true,project=true",
+            )
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "ssh=true,manifest=false",
+            )
+            # The error message must mention both the offending key/value
+            # and at least one canonical alternative so the user can fix
+            # their command without reading source.
+            err = try
+                PluginOptionParser.parse_kv_string("aqua=true,project=true")
+                nothing
+            catch e
+                e
+            end
+            @test err isa PluginOptionFormatError
+            @test occursin("aqua", err.message)
+            @test occursin("true,project=true", err.message)
+            @test occursin("--", err.message)  # canonical form is a CLI flag
+        end
+
+        @testset "issue #5: legitimate comma uses keep working" begin
+            # Pure list value (no `=` in the value) — comma promotion
+            # still applies; this is the canonical way to pass an array.
+            @test PluginOptionParser.parse_kv_string("ignore=.DS_Store,.vscode") ==
+                  Dict{String,Any}("ignore" => [".DS_Store", ".vscode"])
+
+            # Quoted comma — single literal string, not a list.
+            @test PluginOptionParser.parse_kv_string("name=\"Doe, Jane\"") ==
+                  Dict{String,Any}("name" => "Doe, Jane")
+
+            # Bracket array containing `=`-looking text inside an item.
+            # The value starts with `[`, so the comma-KV check skips it.
+            @test PluginOptionParser.parse_kv_string("items=[a=1, b=2]") ==
+                  Dict{String,Any}("items" => ["a=1", "b=2"])
+        end
     end
 end

@@ -440,5 +440,87 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             @test occursin("version = 1.10", out)
             @test !occursin("version = 1.1\n", out)
         end
+
+        # Issue #5 contract: repeat-flag is the canonical multi-value form
+        # (POSIX/GNU/clig.dev convention; matches docker/kubectl/podman).
+        # Comma-separated KEY=VALUE is the anti-pattern that must error.
+        @testset "issue #5: repeat flag merges into a single plugin section" begin
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true",
+                 "--git", "manifest=false"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            @test occursin("ssh = true", out)
+            @test occursin("manifest = false", out)
+        end
+
+        @testset "issue #5: repeat flag last-wins on duplicate key" begin
+            # Final invocation should win for a re-set key, matching the
+            # docker `-e KEY=...` aggregation semantics.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true",
+                 "--git", "ssh=false"],
+            )
+            @test result.success == true
+            @test occursin("ssh = false", out)
+            @test !occursin("ssh = true", out)
+        end
+
+        @testset "issue #5: bare flag combined with KV repeat" begin
+            # `--git --git ssh=true` should enable Git *and* set ssh=true
+            # — the bare invocation is a no-op once a value-bearing one
+            # is present.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git",
+                 "--git", "ssh=true"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            @test occursin("ssh = true", out)
+        end
+
+        @testset "issue #5: repeat-flag and quoted bundle produce the same Dict" begin
+            # Cross-form equivalence: the same intent expressed two ways
+            # must reach PackageGenerator with byte-identical plugin
+            # options. We compare Plugin: Git sections of both runs.
+            _, out_repeat = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true",
+                 "--git", "manifest=false"],
+            )
+            _, out_bundle = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true manifest=false"],
+            )
+            # Extract the Plugin: Git block (between `Plugin: Git` and the
+            # next `Plugin:` marker, or end of output). Trim per-run noise
+            # (output dirs, etc.) by only comparing that block.
+            function _git_section(s::AbstractString)
+                m = match(r"Plugin: Git\n((?:    [^\n]*\n)*)", s)
+                m === nothing ? "" : m.captures[1]
+            end
+            @test _git_section(out_repeat) == _git_section(out_bundle)
+            @test !isempty(_git_section(out_repeat))
+        end
+
+        @testset "issue #5: comma-separated KEY=VALUE produces friendly error" begin
+            # `--tests "aqua=true,project=true"` previously corrupted into
+            # `Tests.aqua = ["true", "project=true"]`. Now it must surface
+            # as a CLI error that names the canonical replacement forms.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--tests", "aqua=true,project=true"],
+            )
+            @test result.success == false
+            # The CommandResult message bubbles up the JTCError message;
+            # it should mention the offending value and a canonical form.
+            @test occursin("aqua", result.message)
+            @test occursin("true,project=true", result.message)
+            @test occursin("--", result.message)
+        end
     end
 end
