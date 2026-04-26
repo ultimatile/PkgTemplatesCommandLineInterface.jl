@@ -33,8 +33,17 @@ function merge_config(config_defaults::Dict, cli_args::Dict)::Dict
         if haskey(merged, key) && value isa Dict && merged[key] isa Dict
             # Nested configuration merge
             merged[key] = merge(merged[key], value)
-        elseif value !== nothing
-            # CLI argument overrides config (only if not nothing)
+        elseif value === nothing
+            continue
+        elseif value isa AbstractVector && isempty(value)
+            # ArgParse `:append_arg` returns `Any[]` for every flag the
+            # user did not supply (regardless of `:default => nothing`).
+            # Treat that shape like `nothing` so absent plugin flags do
+            # not leak into the dry-run plan as misleading `Any[]` lines
+            # under Merged options.
+            continue
+        else
+            # CLI argument overrides config
             merged[key] = value
         end
     end
