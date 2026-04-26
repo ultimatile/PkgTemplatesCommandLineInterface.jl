@@ -241,6 +241,14 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
                 "ssh=true,  manifest=false",
             )
 
+            # Shape C: whitespace before the comma puts `,` at the start
+            # of the next token, so the key parses as `,project` and
+            # would be silently stored under that bogus name. Detect by
+            # rejecting any key that contains `,` after stripping.
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "aqua=true ,project=true",
+            )
+
             # The error message must mention both the offending key/value
             # and at least one canonical alternative so the user can fix
             # their command without reading source.

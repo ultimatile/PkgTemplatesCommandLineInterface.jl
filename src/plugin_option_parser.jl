@@ -168,6 +168,7 @@ function parse_kv_string(s::AbstractString;
             # plugin construction and TOML writes never see an empty
             # option name.
             if !isempty(key)
+                _reject_comma_in_key(key, part, plugin_flag)
                 stripped_v = String(strip(v))
                 next_part = i < n ? parts[i + 1] : ""
                 _reject_comma_separated_kv(key, stripped_v, next_part, plugin_flag)
@@ -247,6 +248,37 @@ function _reject_comma_separated_kv(key::AbstractString,
         throw(PluginOptionFormatError(msg))
     end
     return
+end
+
+# Reject a key that contains `,` after stripping (e.g. `,project` from
+# the input `aqua=true ,project=true`). Legitimate plugin option keys
+# are bare identifiers; a comma in the key means the user used `,` as a
+# separator between KV pairs and `split_string` happened to break the
+# bundle in a way that put the comma at the start of the next token.
+# Same anti-pattern as the value-side detection, just whitespace placed
+# such that neither shape_inline nor shape_split fires.
+function _reject_comma_in_key(key::AbstractString,
+                                part::AbstractString,
+                                plugin_flag::Union{String,Nothing})
+    occursin(',', key) || return
+    flag = something(plugin_flag, "--<plugin>")
+    # Reconstruct the offending input from the raw token (which still
+    # carries the leading/internal comma) so the user sees what they
+    # typed. Strip the leading `,` and surrounding whitespace, then
+    # split on `,` to suggest canonical alternatives.
+    cleaned = strip(strip(part), ',')
+    pieces = filter(!isempty, String.(strip.(split(cleaned, ','))))
+    isempty(pieces) && (pieces = String[String(strip(part))])
+    repeat_form = join(["$flag $p" for p in pieces], " ")
+    bundle_form = "$flag \"" * join(pieces, " ") * "\""
+    msg = string(
+        "Plugin option key ", repr(String(key)),
+        " contains a comma, which suggests `,` was used as a separator ",
+        "between KEY=VALUE pairs. That form is not supported. Please use one of:\n",
+        "  ", repeat_form, "\n",
+        "  ", bundle_form,
+    )
+    throw(PluginOptionFormatError(msg))
 end
 
 end  # module PluginOptionParser
