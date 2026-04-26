@@ -55,33 +55,10 @@ import PkgTemplatesCommandLineInterface.CreateCommand
         end
     end
 
-    @testset "parse_plugin_option_value" begin
-        @testset "boolean values" begin
-            @test CreateCommand.parse_plugin_option_value("ssh=true") == ("ssh", true)
-            @test CreateCommand.parse_plugin_option_value("ssh=false") == ("ssh", false)
-        end
-
-        @testset "integer values" begin
-            @test CreateCommand.parse_plugin_option_value("indent=4") == ("indent", 4)
-            @test CreateCommand.parse_plugin_option_value("count=123") == ("count", 123)
-        end
-
-        @testset "float values" begin
-            @test CreateCommand.parse_plugin_option_value("version=1.5") == ("version", 1.5)
-            @test CreateCommand.parse_plugin_option_value("ratio=0.75") == ("ratio", 0.75)
-        end
-
-        @testset "string values" begin
-            @test CreateCommand.parse_plugin_option_value("style=blue") == ("style", "blue")
-            @test CreateCommand.parse_plugin_option_value("name=MyPkg") == ("name", "MyPkg")
-        end
-
-        @testset "array values" begin
-            key, val = CreateCommand.parse_plugin_option_value("items=[a,b,c]")
-            @test key == "items"
-            @test val == ["a", "b", "c"]
-        end
-    end
+    # `parse_plugin_option_value` was deleted in #9 (issue #9): the broken
+    # CreateCommand-local copy (Float coercion, no quote handling) is
+    # replaced by PluginOptionParser.parse_value, whose contract is
+    # exercised in test/test_plugin_option_parser.jl.
 
     @testset "parse_plugin_options" begin
         # ArgParse stores plugin options under the lowercase plugin name
@@ -412,6 +389,56 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             # it when no plugins were selected. Asserting absence of any
             # "Plugin: " line is the cleanest way to confirm.
             @test !occursin("Plugin: ", out)
+        end
+
+        # Contract: with the parser unified under PluginOptionParser
+        # (issue #9), the input shapes that worked under `config set`
+        # must also work end-to-end under `create`. Each case below is
+        # the same shape that issue #9's acceptance criteria call out.
+        @testset "issue #9: quoted comma value preserved across CLI path" begin
+            # `--git 'name="Doe, Jane" email=x'` must reach Git as a
+            # single string `name`, not as a Vector split on the comma.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "name=\"Doe, Jane\" email=x"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            @test occursin("name = Doe, Jane", out)
+            @test occursin("email = x", out)
+        end
+
+        @testset "issue #9: bracket array reaches plugin options as Vector" begin
+            # `--git 'ignore=[.DS_Store, .vscode]'` must arrive as
+            # Vector{String}, not be split on whitespace inside the
+            # bracket nor flattened into a single string.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ignore=[.DS_Store, .vscode]"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            # The dry-run prints `ignore = [".DS_Store", ".vscode"]` for
+            # Vector values; assert the array formatting so this fails
+            # if the value is silently flattened into a single string
+            # such as ".DS_Store,.vscode".
+            @test occursin("ignore = [", out)
+            @test occursin("\".DS_Store\"", out)
+            @test occursin("\".vscode\"", out)
+        end
+
+        @testset "issue #9: version-like value stays a String" begin
+            # `--projectfile version=1.10` must reach ProjectFile as the
+            # string "1.10", not as Float64(1.1) (which loses the trailing
+            # zero and breaks VersionNumber construction downstream).
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--projectfile", "version=1.10"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: ProjectFile", out)
+            @test occursin("version = 1.10", out)
+            @test !occursin("version = 1.1\n", out)
         end
     end
 end

@@ -19,6 +19,7 @@ using Aqua
     include("test_types.jl")
     include("test_config_manager.jl")
     include("test_plugin_discovery.jl")
+    include("test_plugin_option_parser.jl")
     include("test_template_manager.jl")
     include("test_package_generator.jl")
     include("test_create_command.jl")

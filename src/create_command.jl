@@ -13,9 +13,10 @@ using ..PkgTemplatesCommandLineInterface: CommandResult, PackageGenerationError
 import ..ConfigManager
 import ..PackageGenerator
 import ..PluginDiscovery
+import ..PluginOptionParser
 import ..TemplateManager
 
-export execute, merge_config, parse_plugin_options, parse_plugin_option_value
+export execute, merge_config, parse_plugin_options
 
 """
     merge_config(config_defaults::Dict, cli_args::Dict)::Dict
@@ -42,48 +43,6 @@ function merge_config(config_defaults::Dict, cli_args::Dict)::Dict
 end
 
 """
-    parse_plugin_option_value(opt::String)::Tuple{String, Any}
-
-Parse plugin option from "key=value" string format.
-Performs type inference:
-- "true" / "false" → Bool
-- "123" → Int
-- "1.5" → Float64
-- "[a,b,c]" → Vector{String}
-- Otherwise → String
-"""
-function parse_plugin_option_value(opt::String)::Tuple{String, Any}
-    parts = split(opt, '=', limit=2)
-    if length(parts) != 2
-        error("Invalid plugin option format: '$opt'. Expected 'key=value'")
-    end
-
-    key, value_str = parts[1], parts[2]
-
-    value = if value_str == "true"
-        true
-    elseif value_str == "false"
-        false
-    elseif startswith(value_str, "[") && endswith(value_str, "]")
-        # Array parsing: "[item1,item2]" → ["item1", "item2"]
-        inner = value_str[2:end-1]  # Remove brackets
-        if isempty(inner)
-            String[]
-        else
-            split(inner, ',')
-        end
-    elseif occursin(r"^\d+$", value_str)
-        parse(Int, value_str)
-    elseif occursin(r"^\d+\.\d+$", value_str)
-        parse(Float64, value_str)
-    else
-        value_str  # String as-is
-    end
-
-    return (String(key), value)
-end
-
-"""
     parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
 
 Translate CLI plugin options from `args` into the
@@ -96,8 +55,9 @@ registration, the value is one of:
 - `nothing`           → `--<plugin>` not supplied; skip.
 - `""`                → `--<plugin>` supplied without a value; enable
   the plugin with default options (empty section).
-- `"k1=v1 k2=v2 ..."` → `--<plugin> "..."`; split on whitespace and
-  parse each token as a typed `KEY=VALUE` pair.
+- `"k1=v1 k2=v2 ..."` → `--<plugin> "..."`; route through
+  `PluginOptionParser.parse_kv_string` so quoted strings, bracket arrays,
+  and version-like values parse identically to the `config set` path.
 
 Output keys are canonicalised against `PluginDiscovery.canonical_names()`
 so PkgTemplates plugin types resolve via `getfield(PkgTemplates, Symbol(...))`.
@@ -113,14 +73,9 @@ function parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
         if value === nothing
             continue
         elseif value isa AbstractString
-            section = Dict{String, Any}()
-            if !isempty(value)
-                for tok in split(value)
-                    isempty(tok) && continue
-                    opt_key, opt_value = parse_plugin_option_value(String(tok))
-                    section[opt_key] = opt_value
-                end
-            end
+            section = isempty(value) ?
+                Dict{String, Any}() :
+                PluginOptionParser.parse_kv_string(value)
             plugin_options[canonical_name] = section
         end
     end

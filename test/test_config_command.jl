@@ -289,60 +289,6 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
         end
     end
 
-    # Contract: parse_plugin_option_value preserves the user's intent across
-    # types — bools, ints, decimals (kept as strings so VersionNumber survives),
-    # bracket arrays, comma-promoted arrays, and quoted strings.
-    @testset "parse_plugin_option_value contracts" begin
-        @testset "boolean synonyms cover true/yes/false/no but not 0/1" begin
-            @test ConfigCommand.parse_plugin_option_value("true") === true
-            @test ConfigCommand.parse_plugin_option_value("YES") === true
-            @test ConfigCommand.parse_plugin_option_value("false") === false
-            @test ConfigCommand.parse_plugin_option_value("No") === false
-            # `1`/`0` must round-trip as integers so plugin int options like
-            # `indent=1` don't become booleans.
-            @test ConfigCommand.parse_plugin_option_value("1") === 1
-            @test ConfigCommand.parse_plugin_option_value("0") === 0
-        end
-
-        @testset "integer values keep their type" begin
-            @test ConfigCommand.parse_plugin_option_value("42") === 42
-            @test ConfigCommand.parse_plugin_option_value("100") === 100
-        end
-
-        @testset "decimal-shaped values stay strings" begin
-            # ProjectFile.version expects a string parseable into VersionNumber;
-            # Float coercion both breaks the constructor and loses trailing zeros.
-            @test ConfigCommand.parse_plugin_option_value("1.10") == "1.10"
-            @test ConfigCommand.parse_plugin_option_value("1.10") isa AbstractString
-            @test ConfigCommand.parse_plugin_option_value("1.2") == "1.2"
-        end
-
-        @testset "bracket-form arrays parse to Vector{String}" begin
-            @test ConfigCommand.parse_plugin_option_value("[a,b,c]") == ["a", "b", "c"]
-            @test ConfigCommand.parse_plugin_option_value("[]") == String[]
-            # Quoted items inside brackets keep their internal text
-            @test ConfigCommand.parse_plugin_option_value("[\"a b\",c]") == ["a b", "c"]
-        end
-
-        @testset "unquoted comma values promote to arrays" begin
-            @test ConfigCommand.parse_plugin_option_value("a,b,c") == ["a", "b", "c"]
-            @test ConfigCommand.parse_plugin_option_value(".DS_Store,.vscode") ==
-                  [".DS_Store", ".vscode"]
-        end
-
-        @testset "quoted strings keep commas as literal text" begin
-            # Without this contract, Git.name="Doe, Jane" silently becomes a
-            # Vector{String} and the plugin constructor fails.
-            @test ConfigCommand.parse_plugin_option_value("\"Doe, Jane\"") == "Doe, Jane"
-            @test ConfigCommand.parse_plugin_option_value("'a, b, c'") == "a, b, c"
-        end
-
-        @testset "plain strings flow through unchanged" begin
-            @test ConfigCommand.parse_plugin_option_value("blue") == "blue"
-            @test ConfigCommand.parse_plugin_option_value("MyPkg") == "MyPkg"
-        end
-    end
-
     # Contract: ConfigCommand.execute accepts both legacy flat dicts and the
     # ArgParse-shaped nested dict, and writes the same values either way.
     @testset "execute() ArgParse-shape contracts" begin

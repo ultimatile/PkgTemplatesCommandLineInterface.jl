@@ -12,6 +12,7 @@ using TOML
 using ..PkgTemplatesCommandLineInterface: CommandResult, JTCError, ConfigurationError
 import ..ConfigManager
 import ..PluginDiscovery
+import ..PluginOptionParser
 
 """
     format_config(config::Dict{String, Any})::String
@@ -88,100 +89,6 @@ function _resolve_section_target(defaults::Dict, section::AbstractString;
         end
     end
     return get(canonical, lowercase(s), s)
-end
-
-"""
-    parse_plugin_option_value(value_str::AbstractString)
-
-Convert a string token into the appropriate Julia type for storage in TOML.
-Mirrors `parse_plugin_option_value` in the Python port.
-"""
-function parse_plugin_option_value(value_str::AbstractString)
-    s = String(value_str)
-    lower = lowercase(s)
-    if lower in ("true", "yes")
-        return true
-    elseif lower in ("false", "no")
-        return false
-    elseif startswith(s, "[") && endswith(s, "]")
-        inner = strip(s[2:end-1])
-        if isempty(inner)
-            return String[]
-        end
-        return [String(strip(strip(item), ['"', '\''])) for item in split(inner, ',')]
-    elseif occursin(r"^\d+$", s)
-        return parse(Int, s)
-    else
-        # Decimal-looking values (e.g., "1.2", "1.10") stay strings: downstream
-        # plugins such as ProjectFile expect a string they can parse into a
-        # VersionNumber, and Float coercion would also drop trailing zeros.
-        was_quoted = (startswith(s, '"') && endswith(s, '"')) ||
-                     (startswith(s, '\'') && endswith(s, '\''))
-        if was_quoted
-            s = s[2:end-1]
-        end
-        # Auto-promote comma-separated strings to arrays for PkgTemplates.jl
-        # compatibility — but only when the user did NOT explicitly quote the
-        # value. Quotes signal "this is a literal string", so a value like
-        # `name="Doe, Jane"` must stay a single string instead of becoming
-        # ["Doe", "Jane"] (which would break String-typed fields like Git.name).
-        if !was_quoted && occursin(',', s)
-            return [String(strip(item)) for item in split(s, ',') if !isempty(strip(item))]
-        end
-        return s
-    end
-end
-
-# Split an option string respecting quotes and `[...]` arrays so that
-# `--plugin 'a=1 ignore=".vscode,.DS_Store"'` parses cleanly.
-function _split_plugin_option_string(s::AbstractString)::Vector{String}
-    parts = String[]
-    current = IOBuffer()
-    in_quotes = false
-    quote_char = '\0'
-    bracket_depth = 0
-
-    for c in s
-        if c in ('"', '\'') && !in_quotes && bracket_depth == 0
-            in_quotes = true
-            quote_char = c
-            print(current, c)
-        elseif in_quotes && c == quote_char
-            in_quotes = false
-            quote_char = '\0'
-            print(current, c)
-        elseif c == '[' && !in_quotes
-            bracket_depth += 1
-            print(current, c)
-        elseif c == ']' && !in_quotes
-            bracket_depth = max(bracket_depth - 1, 0)
-            print(current, c)
-        elseif c == ' ' && !in_quotes && bracket_depth == 0
-            piece = String(strip(String(take!(current))))
-            if !isempty(piece)
-                push!(parts, piece)
-            end
-        else
-            print(current, c)
-        end
-    end
-    piece = String(strip(String(take!(current))))
-    if !isempty(piece)
-        push!(parts, piece)
-    end
-    return parts
-end
-
-# Parse a `key=value key2=value2` string into a Dict, with type coercion.
-function _parse_plugin_kv_string(s::AbstractString)::Dict{String,Any}
-    options = Dict{String,Any}()
-    for part in _split_plugin_option_string(s)
-        if contains(part, '=')
-            k, v = split(part, '=', limit=2)
-            options[String(strip(k))] = parse_plugin_option_value(strip(v))
-        end
-    end
-    return options
 end
 
 # Apply parsed `config set` arguments to the in-memory config dict.
@@ -298,7 +205,7 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
                 section = Dict{String,Any}()
             end
             if !isempty(value)
-                for (opt_key, opt_val) in _parse_plugin_kv_string(value)
+                for (opt_key, opt_val) in PluginOptionParser.parse_kv_string(value)
                     section[opt_key] = opt_val
                     push!(messages, "Set default $plugin_name.$opt_key: $(repr(opt_val))")
                 end
