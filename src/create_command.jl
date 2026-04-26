@@ -238,6 +238,11 @@ function execute(args::Dict{String, Any})::CommandResult
             try
                 TemplateManager.generate_mise_config(package_name, merged_options, output_dir)
             catch e
+                # Never silently skip Ctrl-C: rethrow so the CLI exits promptly.
+                # Other failures only warn, since mise config is best-effort.
+                if e isa InterruptException
+                    rethrow(e)
+                end
                 @warn "Failed to generate mise config" exception=e
             end
         end

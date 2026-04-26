@@ -154,7 +154,14 @@ function get_plugin_details(plugin_name::String)::PluginDetails
         default_val = try
             # Try using PkgTemplates.defaultkw (official API for @plugin macro)
             PkgTemplates.defaultkw(PluginType, Val(f))
-        catch
+        catch e
+            # Never swallow user cancellation: rethrow Ctrl-C so the CLI can
+            # exit promptly. Any other failure falls through to the
+            # zero-arg-constructor fallback, then to `nothing` if that
+            # also fails.
+            if e isa InterruptException
+                rethrow(e)
+            end
             # Fallback: try instantiating with zero arguments
             if is_argumentless_plugin(PluginType)
                 instance = PluginType()

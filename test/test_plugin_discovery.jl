@@ -217,6 +217,32 @@ include("../src/plugin_discovery.jl")
         end
     end
 
+    # Contract: catch blocks that fall back to a default (returning empty
+    # mappings, swallowing failure into warnings, etc.) must never absorb
+    # `InterruptException`. Otherwise a Ctrl-C during plugin discovery is
+    # silently turned into a partial/empty result and the CLI keeps running
+    # past where the user asked it to stop. Surfaced by Copilot review on
+    # PR #8 (canonical_names case); this test guards the contract repo-wide
+    # against the kind of catch that swallowed it.
+    @testset "catch-all blocks rethrow InterruptException" begin
+        # Files that historically contained catch-everything blocks for
+        # graceful degradation. Each must guard against absorbing Ctrl-C.
+        for relpath in ("src/plugin_discovery.jl", "src/create_command.jl")
+            path = joinpath(@__DIR__, "..", relpath)
+            src = read(path, String)
+            # Look for a `catch` block that does NOT bind the exception,
+            # which is the strongest "swallow everything" smell.
+            bare_catches = collect(eachmatch(r"\bcatch\b(?![^\n]*[A-Za-z_])", src))
+            @test isempty(bare_catches)
+            # Any catch that does bind must mention InterruptException —
+            # either to rethrow it, or to dispatch on it. Files with no
+            # catch blocks at all trivially satisfy this.
+            if occursin(r"\bcatch\s+\w", src)
+                @test occursin("InterruptException", src)
+            end
+        end
+    end
+
     @testset "Integration: plugin discovery and instantiation" begin
         @testset "can instantiate all zero-argument plugins" begin
             plugins = PluginDiscovery.get_plugins()
