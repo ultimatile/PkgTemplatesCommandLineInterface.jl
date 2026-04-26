@@ -72,13 +72,14 @@ function parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
     for (lower_name, canonical_name) in canonical
         haskey(args, lower_name) || continue
         value = args[lower_name]
+        flag = "--$lower_name"
 
         if value === nothing
             continue
         elseif value isa AbstractString
             section = isempty(value) ?
                 Dict{String, Any}() :
-                PluginOptionParser.parse_kv_string(value)
+                PluginOptionParser.parse_kv_string(value; plugin_flag=flag)
             plugin_options[canonical_name] = section
         elseif value isa AbstractVector
             isempty(value) && continue
@@ -86,7 +87,7 @@ function parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
             for elem in value
                 elem isa AbstractString || continue
                 isempty(elem) && continue
-                merge!(section, PluginOptionParser.parse_kv_string(elem))
+                merge!(section, PluginOptionParser.parse_kv_string(elem; plugin_flag=flag))
             end
             plugin_options[canonical_name] = section
         end

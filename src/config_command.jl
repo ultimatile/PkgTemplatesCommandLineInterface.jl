@@ -218,11 +218,12 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
 
         any_value_set = false
         any_bare_flag = false
+        flag = "--$(lowercase(key_str))"
         for elem in elements
             if isempty(elem)
                 any_bare_flag = true
             else
-                for (opt_key, opt_val) in PluginOptionParser.parse_kv_string(elem)
+                for (opt_key, opt_val) in PluginOptionParser.parse_kv_string(elem; plugin_flag=flag)
                     section[opt_key] = opt_val
                     push!(messages, "Set default $plugin_name.$opt_key: $(repr(opt_val))")
                     any_value_set = true

@@ -152,12 +152,12 @@ an anti-pattern because values may legitimately contain commas).
 
 # Example
 ```julia
-throw(PluginOptionFormatError(\"\"\"
-Plugin option value "true,project=true" looks like a comma-separated list of
-KEY=VALUE pairs, which is not supported. Please use one of:
-  --tests aqua=true --tests project=true
-  --tests "aqua=true project=true"
-\"\"\"))
+throw(PluginOptionFormatError(
+    "Plugin option value \"true,project=true\" looks like a comma-separated " *
+    "list of KEY=VALUE pairs, which is not supported. Please use one of:\n" *
+    "  --tests aqua=true --tests project=true\n" *
+    "  --tests \"aqua=true project=true\""
+))
 ```
 """
 struct PluginOptionFormatError <: JTCError

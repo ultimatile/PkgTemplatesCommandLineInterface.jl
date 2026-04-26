@@ -220,12 +220,27 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
         # The parser must reject it with a friendly message, while still
         # accepting legitimate uses of comma in values.
         @testset "issue #5: comma-separated KEY=VALUE rejected" begin
+            # Shape A: comma + `=` collapsed into a single unquoted value.
             @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
                 "aqua=true,project=true",
             )
             @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
                 "ssh=true,manifest=false",
             )
+
+            # Shape B: comma + space-then-key. split_string breaks this
+            # into `["aqua=true,", "project=true"]`, so neither token in
+            # isolation has both `,` and `=` — the detection has to
+            # consider the trailing comma + next-token-with-`=` pair.
+            # Without this, the previous implementation silently produced
+            # `Dict("aqua" => ["true"], "project" => true)`.
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "aqua=true, project=true",
+            )
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "ssh=true,  manifest=false",
+            )
+
             # The error message must mention both the offending key/value
             # and at least one canonical alternative so the user can fix
             # their command without reading source.
@@ -239,6 +254,20 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
             @test occursin("aqua", err.message)
             @test occursin("true,project=true", err.message)
             @test occursin("--", err.message)  # canonical form is a CLI flag
+
+            # When the caller knows the real flag, the message should use
+            # it instead of the `<plugin>` placeholder so the suggested
+            # canonical forms are copy-pasteable.
+            err_with_flag = try
+                PluginOptionParser.parse_kv_string("aqua=true,project=true";
+                                                    plugin_flag="--tests")
+                nothing
+            catch e
+                e
+            end
+            @test err_with_flag isa PluginOptionFormatError
+            @test occursin("--tests", err_with_flag.message)
+            @test !occursin("<plugin>", err_with_flag.message)
         end
 
         @testset "issue #5: legitimate comma uses keep working" begin

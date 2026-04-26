@@ -130,7 +130,7 @@ function split_string(s::AbstractString)::Vector{String}
 end
 
 """
-    parse_kv_string(s::AbstractString)::Dict{String,Any}
+    parse_kv_string(s::AbstractString; plugin_flag::Union{String,Nothing}=nothing)::Dict{String,Any}
 
 Parse a whitespace-separated `key=value key2=value2` bundle into a typed
 Dict. Only tokens that already contain `=` are considered; other tokens
@@ -140,17 +140,27 @@ type coercion. This means `key=value` must remain a single token —
 whitespace around `=` (for example, `k= v` or `k =v`) will split the
 pair across tokens and will not be parsed as a single option.
 
-Throws `PluginOptionFormatError` when an unquoted value contains both
-`,` and `=`. That shape (e.g. `aqua=true,project=true`) almost always
-means the user tried to comma-separate KEY=VALUE pairs, which clig.dev
-flags as an anti-pattern. The error message points the user at the
-canonical forms.
+Throws `PluginOptionFormatError` for the comma-separated KEY=VALUE
+anti-pattern, in either shape:
+- `aqua=true,project=true` — comma + `=` in one unquoted value
+- `aqua=true, project=true` — trailing `,` in one value, the next token
+  carries `=` (i.e. the user typed comma + space and got a split that
+  hid the original pattern from a single-value check)
+
+`plugin_flag`, when supplied, is the user-visible flag name (e.g.
+`"--git"`). It is woven into the canonical-form examples in the error
+message so the user can copy/paste the suggestion. Direct callers that
+do not know the flag (tests) leave it `nothing`.
 
 Returns an empty `Dict` for an empty input or a string with no `=` tokens.
 """
-function parse_kv_string(s::AbstractString)::Dict{String,Any}
+function parse_kv_string(s::AbstractString;
+                          plugin_flag::Union{String,Nothing}=nothing)::Dict{String,Any}
     options = Dict{String,Any}()
-    for part in split_string(s)
+    parts = split_string(s)
+    n = length(parts)
+    for i in 1:n
+        part = parts[i]
         if contains(part, '=')
             k, v = split(part, '=', limit=2)
             key = String(strip(k))
@@ -159,7 +169,8 @@ function parse_kv_string(s::AbstractString)::Dict{String,Any}
             # option name.
             if !isempty(key)
                 stripped_v = String(strip(v))
-                _reject_comma_separated_kv(key, stripped_v)
+                next_part = i < n ? parts[i + 1] : ""
+                _reject_comma_separated_kv(key, stripped_v, next_part, plugin_flag)
                 options[key] = parse_value(stripped_v)
             end
         end
@@ -168,35 +179,62 @@ function parse_kv_string(s::AbstractString)::Dict{String,Any}
 end
 
 # Reject a comma-separated KEY=VALUE list shape (the clig.dev anti-pattern).
-# The signal is "unquoted value that contains both `,` and `=`": a quoted
-# value like `name="Doe, Jane"` is a literal string, and a list value like
-# `ignore=.DS_Store,.vscode` has a comma but no `=` in the value side.
-function _reject_comma_separated_kv(key::AbstractString, value::AbstractString)
+# Two shapes count:
+#   1. Single unquoted value contains both `,` and `=`
+#      (e.g. `aqua=true,project=true` arrives as one token)
+#   2. Value ends with `,` and the *next* token contains `=`
+#      (e.g. `aqua=true, project=true` is split into `["aqua=true,", "project=true"]`
+#      and neither half on its own would trigger shape #1)
+# Quoted values like `name="Doe, Jane"` and bracket arrays like
+# `ignore=[a,b]` are explicitly excluded because the comma is part of
+# the literal value, not a list-of-KV separator.
+function _reject_comma_separated_kv(key::AbstractString,
+                                     value::AbstractString,
+                                     next_part::AbstractString,
+                                     plugin_flag::Union{String,Nothing})
     isempty(value) && return
     quoted = (startswith(value, '"') && endswith(value, '"')) ||
              (startswith(value, '\'') && endswith(value, '\''))
     bracketed = startswith(value, '[') && endswith(value, ']')
-    if !quoted && !bracketed && occursin(',', value) && occursin('=', value)
-        # Reconstruct what the user most likely typed for the friendly
-        # message, and offer the two canonical alternatives.
-        plugin_hint = "<plugin>"
-        # Build the suggested repeat-flag form by splitting the malformed
-        # value on commas and pairing each piece with the original key
-        # only for the leading piece (subsequent pieces already carry
-        # their own `=`, so we emit them as separate flags).
-        pieces = String.(split(value, ','))
-        repeat_form = "--$plugin_hint $key=$(strip(pieces[1]))"
-        for p in pieces[2:end]
-            repeat_form *= " --$plugin_hint $(strip(p))"
+    quoted && return
+    bracketed && return
+
+    shape_inline = occursin(',', value) && occursin('=', value)
+    shape_split = endswith(value, ',') && contains(next_part, '=')
+
+    if shape_inline || shape_split
+        # Reconstruct the comma-separated pieces so the suggestion uses
+        # exactly what the user typed. For shape_split the second piece
+        # comes from the next token (which already contains `=`).
+        pieces = if shape_inline
+            [String(strip(p)) for p in split(value, ',')]
+        else
+            base = chopsuffix(value, ",")
+            String[String(strip(base)), String(strip(next_part))]
         end
-        bundle_form = "--$plugin_hint \"$key=$(strip(pieces[1]))" *
-                      join([" $(strip(p))" for p in pieces[2:end]]) * "\""
-        msg = """
-            Plugin option value $(repr(value)) for key $(repr(key)) looks like a
-            comma-separated list of KEY=VALUE pairs, which is not supported.
-            Please use one of:
-              $repeat_form
-              $bundle_form"""
+        # Filter out any empty pieces from things like trailing `,,`.
+        pieces = filter(!isempty, pieces)
+
+        flag = something(plugin_flag, "--<plugin>")
+        # Build the canonical replacement forms with the real flag name
+        # so users can copy/paste. The leading piece keeps its key (it
+        # came from the offending token); subsequent pieces already
+        # carry their own `key=value` syntax so we just emit them.
+        repeat_parts = ["$flag $key=$(pieces[1])"]
+        append!(repeat_parts, ["$flag $p" for p in pieces[2:end]])
+        repeat_form = join(repeat_parts, " ")
+        bundle_inner = join(vcat(["$key=$(pieces[1])"], pieces[2:end]), " ")
+        bundle_form = "$flag \"$bundle_inner\""
+
+        # Construct the message without leading whitespace so handle_error
+        # paths display it cleanly.
+        msg = string(
+            "Plugin option value ", repr(value), " for key ", repr(key),
+            " looks like a comma-separated list of KEY=VALUE pairs, ",
+            "which is not supported. Please use one of:\n",
+            "  ", repeat_form, "\n",
+            "  ", bundle_form,
+        )
         throw(PluginOptionFormatError(msg))
     end
     return
