@@ -39,6 +39,10 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
         updated["default"] = Dict{String,Any}()
     end
 
+    # Compute the plugin-name lookup once per call so callers passing many
+    # dotted keys do not re-run PkgTemplates plugin discovery for each one.
+    canonical = _plugin_canonical_names()
+
     for (key, value) in new_values
         if key in ("show", "set", "%COMMAND%", "%SUBCOMMAND%", "config-file")
             continue
@@ -46,7 +50,8 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
 
         if contains(key, '.')
             parts = split(key, '.', limit=2)
-            section = _resolve_section_target(updated["default"], String(parts[1]))
+            section = _resolve_section_target(updated["default"],
+                                              String(parts[1]); canonical=canonical)
             option = String(parts[2])
             section_dict = get!(updated["default"], section, Dict{String,Any}())
             if !(section_dict isa Dict)
@@ -67,7 +72,11 @@ end
 # in place; otherwise fall back to the canonical PkgTemplates plugin name
 # so new entries land under the form CreateCommand recognises (`Formatter`,
 # not `formatter`). For non-plugin sections we keep the literal name.
-function _resolve_section_target(defaults::Dict, section::AbstractString)::String
+#
+# `canonical` should be the result of `_plugin_canonical_names()` cached by
+# the caller, so multi-key callers pay plugin discovery exactly once.
+function _resolve_section_target(defaults::Dict, section::AbstractString;
+                                  canonical::Dict{String,String}=_plugin_canonical_names())::String
     s = String(section)
     if haskey(defaults, s) && defaults[s] isa Dict
         return s
@@ -78,7 +87,6 @@ function _resolve_section_target(defaults::Dict, section::AbstractString)::Strin
             return String(k)
         end
     end
-    canonical = _plugin_canonical_names()
     return get(canonical, lowercase(s), s)
 end
 
@@ -274,7 +282,8 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
         # plugin defaults reach the create flow under the expected key.
         if contains(key_str, '.')
             parts = split(key_str, '.', limit=2)
-            section = _resolve_section_target(defaults, String(parts[1]))
+            section = _resolve_section_target(defaults, String(parts[1]);
+                                              canonical=canonical)
             option = String(parts[2])
             section_dict = get(defaults, section, nothing)
             if !(section_dict isa Dict)
