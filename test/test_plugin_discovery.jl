@@ -190,6 +190,33 @@ include("../src/plugin_discovery.jl")
         end
     end
 
+    @testset "canonical_names()" begin
+        @testset "maps lowercase plugin names back to canonical PkgTemplates names" begin
+            mapping = PluginDiscovery.canonical_names()
+
+            # Common plugins must be present and round-trip correctly.
+            @test mapping["git"] == "Git"
+            @test mapping["license"] == "License"
+            @test mapping["readme"] == "Readme"
+            @test mapping["formatter"] == "Formatter"
+        end
+
+        @testset "covers every plugin returned by get_plugins" begin
+            plugins = PluginDiscovery.get_plugins()
+            mapping = PluginDiscovery.canonical_names()
+
+            # Every discovered plugin must appear in the mapping under its
+            # lowercase name and round-trip back to its canonical spelling.
+            for p in plugins
+                name = string(nameof(p))
+                @test mapping[lowercase(name)] == name
+            end
+
+            # And the mapping should contain exactly that many entries.
+            @test length(mapping) == length(plugins)
+        end
+    end
+
     @testset "Integration: plugin discovery and instantiation" begin
         @testset "can instantiate all zero-argument plugins" begin
             plugins = PluginDiscovery.get_plugins()
