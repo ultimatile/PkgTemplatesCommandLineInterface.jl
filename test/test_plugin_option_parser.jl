@@ -100,6 +100,29 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
                   ["a=1", "b=2", "c=3"]
         end
 
+        @testset "apostrophe in unquoted value is literal, not a delimiter" begin
+            # Without the at-token-start guard, the `'` after `O` would
+            # open a quoted block and swallow ` email=x` into the name
+            # value, dropping the email entirely.
+            @test PluginOptionParser.split_string("name=O'Connor email=x") ==
+                  ["name=O'Connor", "email=x"]
+            # Same idea with double quote inside an unquoted value.
+            @test PluginOptionParser.split_string("k=he\"said k2=v2") ==
+                  ["k=he\"said", "k2=v2"]
+        end
+
+        @testset "quote at start-of-token still opens a quoted block" begin
+            # The token-start guard must not regress the canonical case:
+            # quoted values that contain whitespace or commas survive intact.
+            @test PluginOptionParser.split_string("name=\"Doe, Jane\" k=v") ==
+                  ["name=\"Doe, Jane\"", "k=v"]
+            @test PluginOptionParser.split_string("a='1 2' b=3") ==
+                  ["a='1 2'", "b=3"]
+            # A quoted token that is not preceded by `=` (just whitespace).
+            @test PluginOptionParser.split_string("'literal token' k=v") ==
+                  ["'literal token'", "k=v"]
+        end
+
         @testset "empty input yields empty vector" begin
             @test PluginOptionParser.split_string("") == String[]
             @test PluginOptionParser.split_string("   ") == String[]
@@ -169,6 +192,15 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
             # But a real KV next to a malformed token still produces the KV.
             @test PluginOptionParser.parse_kv_string("standalone k=v") ==
                   Dict{String,Any}("k" => "v")
+        end
+
+        @testset "apostrophe inside value preserved as literal" begin
+            # End-to-end invariant: a literal `'` mid-value must not
+            # swallow following options. Previously this corruption
+            # silently dropped `email`.
+            result = PluginOptionParser.parse_kv_string("name=O'Connor email=x")
+            @test result["name"] == "O'Connor"
+            @test result["email"] == "x"
         end
 
         @testset "empty-key tokens are dropped" begin

@@ -70,10 +70,14 @@ Split a plugin option bundle on whitespace while respecting `"..."`,
 `'...'`, and `[...]` so that values like `name="Doe, Jane"` or
 `ignore=[.DS_Store, .vscode]` survive intact.
 
-Empty pieces (consecutive whitespace) are skipped. Unmatched closing
-brackets clamp `bracket_depth` at zero rather than going negative; the
-opening-quote character is recorded so a `'` inside a `"..."` block does
-not close the quoting context.
+A `'` or `"` only opens a quoted block when it appears at the start of
+a token — that is, immediately after whitespace, `=`, or the start of
+the input. Inside a value (e.g. `name=O'Connor`) an apostrophe is a
+literal character and does not affect splitting. Empty pieces from
+consecutive whitespace are skipped. Unmatched closing brackets clamp
+`bracket_depth` at zero rather than going negative; the opening-quote
+character is recorded so a `'` inside a `"..."` block does not close
+the quoting context.
 """
 function split_string(s::AbstractString)::Vector{String}
     parts = String[]
@@ -81,9 +85,16 @@ function split_string(s::AbstractString)::Vector{String}
     in_quotes = false
     quote_char = '\0'
     bracket_depth = 0
+    prev_char = '\0'  # '\0' marks start-of-input
 
     for c in s
-        if c in ('"', '\'') && !in_quotes && bracket_depth == 0
+        # A quote char only opens a quoted block at the start of a token,
+        # i.e. right after whitespace, `=`, or the start of input. Without
+        # this guard, `name=O'Connor email=x` would enter quote mode at
+        # the apostrophe and silently swallow the rest of the bundle.
+        at_token_start = prev_char == '\0' || isspace(prev_char) || prev_char == '='
+
+        if c in ('"', '\'') && !in_quotes && bracket_depth == 0 && at_token_start
             in_quotes = true
             quote_char = c
             print(current, c)
@@ -107,6 +118,7 @@ function split_string(s::AbstractString)::Vector{String}
         else
             print(current, c)
         end
+        prev_char = c
     end
     piece = String(strip(String(take!(current))))
     if !isempty(piece)
