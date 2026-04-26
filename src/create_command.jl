@@ -12,6 +12,7 @@ module CreateCommand
 using ..PkgTemplatesCommandLineInterface: CommandResult, PackageGenerationError
 import ..ConfigManager
 import ..PackageGenerator
+import ..PluginDiscovery
 import ..TemplateManager
 
 export execute, merge_config, parse_plugin_options, parse_plugin_option_value
@@ -85,23 +86,42 @@ end
 """
     parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
 
-Parse plugin options from CLI arguments.
-Extracts all "--plugin-name" keys with Vector values,
-converts "key=value" strings to typed Dict entries.
+Translate CLI plugin options from `args` into the
+`Dict{Canonical => Dict{key => typed_value}}` shape that
+`PackageGenerator.create_package` consumes.
+
+ArgParse stores plugin option keys as the lowercase plugin name (no `--`
+prefix). With the unified `nargs='?', constant="", default=nothing`
+registration, the value is one of:
+- `nothing`           → `--<plugin>` not supplied; skip.
+- `""`                → `--<plugin>` supplied without a value; enable
+  the plugin with default options (empty section).
+- `"k1=v1 k2=v2 ..."` → `--<plugin> "..."`; split on whitespace and
+  parse each token as a typed `KEY=VALUE` pair.
+
+Output keys are canonicalised against `PluginDiscovery.canonical_names()`
+so PkgTemplates plugin types resolve via `getfield(PkgTemplates, Symbol(...))`.
 """
 function parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
     plugin_options = Dict{String, Dict{String, Any}}()
+    canonical = PluginDiscovery.canonical_names()
 
-    for (key, values) in args
-        # Plugin option keys start with "--" and have Vector values
-        if startswith(String(key), "--") && values isa Vector
-            plugin_name = replace(String(key), "--" => "", count=1)
-            plugin_options[plugin_name] = Dict{String, Any}()
+    for (lower_name, canonical_name) in canonical
+        haskey(args, lower_name) || continue
+        value = args[lower_name]
 
-            for opt_str in values
-                opt_key, opt_value = parse_plugin_option_value(opt_str)
-                plugin_options[plugin_name][opt_key] = opt_value
+        if value === nothing
+            continue
+        elseif value isa AbstractString
+            section = Dict{String, Any}()
+            if !isempty(value)
+                for tok in split(value)
+                    isempty(tok) && continue
+                    opt_key, opt_value = parse_plugin_option_value(String(tok))
+                    section[opt_key] = opt_value
+                end
             end
+            plugin_options[canonical_name] = section
         end
     end
 
@@ -218,6 +238,11 @@ function execute(args::Dict{String, Any})::CommandResult
             try
                 TemplateManager.generate_mise_config(package_name, merged_options, output_dir)
             catch e
+                # Never silently skip Ctrl-C: rethrow so the CLI exits promptly.
+                # Other failures only warn, since mise config is best-effort.
+                if e isa InterruptException
+                    rethrow(e)
+                end
                 @warn "Failed to generate mise config" exception=e
             end
         end

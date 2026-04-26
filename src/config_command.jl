@@ -41,7 +41,7 @@ function update_config(existing_config::Dict, new_values::Dict)::Dict
 
     # Compute the plugin-name lookup once per call so callers passing many
     # dotted keys do not re-run PkgTemplates plugin discovery for each one.
-    canonical = _plugin_canonical_names()
+    canonical = PluginDiscovery.canonical_names()
 
     for (key, value) in new_values
         if key in ("show", "set", "%COMMAND%", "%SUBCOMMAND%", "config-file")
@@ -73,10 +73,10 @@ end
 # so new entries land under the form CreateCommand recognises (`Formatter`,
 # not `formatter`). For non-plugin sections we keep the literal name.
 #
-# `canonical` should be the result of `_plugin_canonical_names()` cached by
-# the caller, so multi-key callers pay plugin discovery exactly once.
+# `canonical` should be the result of `PluginDiscovery.canonical_names()`
+# cached by the caller, so multi-key callers pay plugin discovery exactly once.
 function _resolve_section_target(defaults::Dict, section::AbstractString;
-                                  canonical::Dict{String,String}=_plugin_canonical_names())::String
+                                  canonical::Dict{String,String}=PluginDiscovery.canonical_names())::String
     s = String(section)
     if haskey(defaults, s) && defaults[s] isa Dict
         return s
@@ -184,21 +184,6 @@ function _parse_plugin_kv_string(s::AbstractString)::Dict{String,Any}
     return options
 end
 
-# Build the lookup of {lowercase plugin name => canonical PkgTemplates name}.
-function _plugin_canonical_names()::Dict{String,String}
-    mapping = Dict{String,String}()
-    try
-        for p in PluginDiscovery.get_plugins()
-            name = string(nameof(p))
-            mapping[lowercase(name)] = name
-        end
-    catch
-        # Fall back to no plugins if PkgTemplates is unavailable; the caller
-        # will simply skip plugin-shaped options in that case.
-    end
-    return mapping
-end
-
 # Apply parsed `config set` arguments to the in-memory config dict.
 # Returns (updated_config, messages::Vector{String}).
 function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
@@ -265,7 +250,7 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
     # Plugin options: any CLI key matching a known plugin name (case-insensitive),
     # plus legacy dot-notation keys (e.g., `formatter.style => "blue"`) for
     # direct callers that still pass the flat update_config shape.
-    canonical = _plugin_canonical_names()
+    canonical = PluginDiscovery.canonical_names()
     for (key, value) in sub_args
         key_str = String(key)
 
@@ -366,7 +351,7 @@ function execute(args::Dict{String,Any})::CommandResult
             # are present.
             cli_keys = ("author", "user", "mail", "license", "julia-version",
                         "mise-filename-base", "with-mise", "no-mise")
-            plugin_canonical_names = _plugin_canonical_names()
+            plugin_canonical_names = PluginDiscovery.canonical_names()
             uses_cli_shape = any(haskey(sub_args, k) for k in cli_keys) ||
                              any(haskey(plugin_canonical_names, lowercase(String(k)))
                                  for k in keys(sub_args))

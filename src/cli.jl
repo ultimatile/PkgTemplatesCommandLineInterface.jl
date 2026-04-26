@@ -166,16 +166,20 @@ Add dynamic plugin options (retrieved from PkgTemplates.jl at runtime)
 
 # Implementation Details
 - Retrieves all plugin types via `PluginDiscovery.get_plugins()`
-- Flag options (argumentless plugins) use `--srcdir` format
-- Key-value options (plugins with arguments) use `--formatter style=blue` format
-- License is skipped because `--license` is registered as an explicit value option
+- Each plugin is registered as `--<lowercase>` accepting an optional
+  space-separated KEY=VALUE string. `--<plugin>` alone enables the plugin
+  with default options; `--<plugin> "k=v ..."` supplies options.
+- License is skipped on the `config set` side because `--license` is
+  registered there as an explicit value option.
 """
 function add_dynamic_plugin_options!(settings::ArgParseSettings)::Nothing
-    # `create` keeps the historical flag-only behaviour for argumentless plugins.
+    # Both `create` and `config set` use the same shape: every plugin accepts
+    # an optional space-separated KEY=VALUE bundle (`--plugin` enables with
+    # defaults; `--plugin "k=v ..."` supplies options). Keeping these in sync
+    # ensures the same input string produces the same plugin configuration on
+    # both the persistence and the package-generation paths.
     add_dynamic_plugin_options!(settings["create"]; skip_license=false,
-                                 argumentless_as_flag=true)
-    # `config set` accepts an optional KEY=VALUE bundle so users can persist
-    # plugin-specific defaults (matches the Python port's `--git "ignore=..."` form).
+                                 argumentless_as_flag=false)
     add_dynamic_plugin_options!(settings["config"]["set"]; skip_license=true,
                                  argumentless_as_flag=false)
     return nothing
@@ -183,9 +187,11 @@ end
 
 # Internal helper: add plugin options to a specific subcommand settings node.
 # `skip_license` avoids colliding with a separately-defined `--license` value option.
-# `argumentless_as_flag=true` matches the legacy `create` registration where
-# zero-arg plugins become bare flags. When false, every plugin accepts an
-# optional space-separated KEY=VALUE string (`--plugin` / `--plugin "k=v ..."`).
+# When `argumentless_as_flag=true`, zero-arg plugins are registered as bare
+# `:store_true` flags. When false, every plugin accepts an optional
+# space-separated KEY=VALUE string (`--plugin` / `--plugin "k=v ..."`); this
+# is the form used by both `create` and `config set` so input parses
+# identically on both paths.
 function add_dynamic_plugin_options!(target;
                                       skip_license::Bool=false,
                                       argumentless_as_flag::Bool=true)::Nothing
@@ -197,14 +203,12 @@ function add_dynamic_plugin_options!(target;
             continue
         end
         option_name = "--$(lowercase(plugin_name))"
-        is_argless = PluginDiscovery.is_argumentless_plugin(plugin)
 
         if argumentless_as_flag
-            # `create` mode: keep the legacy registration shape so
-            # `CreateCommand.parse_plugin_options` (which expects Vector
-            # values for plugin keys) keeps working for any future
-            # non-argumentless plugin.
-            if is_argless
+            # is_argumentless_plugin instantiates the plugin to check the
+            # zero-arg constructor, which has side effects we'd rather not
+            # pay during CLI startup unless the registration shape needs it.
+            if PluginDiscovery.is_argumentless_plugin(plugin)
                 ArgParse.add_arg_table!(target,
                     [option_name],
                     Dict(
@@ -222,9 +226,6 @@ function add_dynamic_plugin_options!(target;
                     ))
             end
         else
-            # `config set` mode: every plugin accepts an optional KEY=VALUE
-            # bundle (`--plugin` enables defaults; `--plugin "k=v ..."`
-            # supplies options), matching the Python port.
             ArgParse.add_arg_table!(target,
                 [option_name],
                 Dict(
@@ -232,7 +233,7 @@ function add_dynamic_plugin_options!(target;
                     :constant => "",
                     :default => nothing,
                     :metavar => "KEY=VALUE",
-                    :help => "Set $plugin_name plugin defaults (omit value to enable with defaults)"
+                    :help => "Enable $plugin_name plugin. Omit value to use defaults, or pass space-separated KEY=VALUE pairs as one shell-quoted string (e.g. --$(lowercase(plugin_name)) \"k1=v1 k2=v2\"). Repeating the flag does not append."
                 ))
         end
     end

@@ -190,6 +190,59 @@ include("../src/plugin_discovery.jl")
         end
     end
 
+    @testset "canonical_names()" begin
+        @testset "maps lowercase plugin names back to canonical PkgTemplates names" begin
+            mapping = PluginDiscovery.canonical_names()
+
+            # Common plugins must be present and round-trip correctly.
+            @test mapping["git"] == "Git"
+            @test mapping["license"] == "License"
+            @test mapping["readme"] == "Readme"
+            @test mapping["formatter"] == "Formatter"
+        end
+
+        @testset "covers every plugin returned by get_plugins" begin
+            plugins = PluginDiscovery.get_plugins()
+            mapping = PluginDiscovery.canonical_names()
+
+            # Every discovered plugin must appear in the mapping under its
+            # lowercase name and round-trip back to its canonical spelling.
+            for p in plugins
+                name = string(nameof(p))
+                @test mapping[lowercase(name)] == name
+            end
+
+            # And the mapping should contain exactly that many entries.
+            @test length(mapping) == length(plugins)
+        end
+    end
+
+    # Contract: catch blocks that fall back to a default (returning empty
+    # mappings, swallowing failure into warnings, etc.) must never absorb
+    # `InterruptException`. Otherwise a Ctrl-C during plugin discovery is
+    # silently turned into a partial/empty result and the CLI keeps running
+    # past where the user asked it to stop. Surfaced by Copilot review on
+    # PR #8 (canonical_names case); this test guards the contract repo-wide
+    # against the kind of catch that swallowed it.
+    @testset "catch-all blocks rethrow InterruptException" begin
+        # Files that historically contained catch-everything blocks for
+        # graceful degradation. Each must guard against absorbing Ctrl-C.
+        for relpath in ("src/plugin_discovery.jl", "src/create_command.jl")
+            path = joinpath(@__DIR__, "..", relpath)
+            src = read(path, String)
+            # Look for a `catch` block that does NOT bind the exception,
+            # which is the strongest "swallow everything" smell.
+            bare_catches = collect(eachmatch(r"\bcatch\b(?![^\n]*[A-Za-z_])", src))
+            @test isempty(bare_catches)
+            # Any catch that does bind must mention InterruptException —
+            # either to rethrow it, or to dispatch on it. Files with no
+            # catch blocks at all trivially satisfy this.
+            if occursin(r"\bcatch\s+\w", src)
+                @test occursin("InterruptException", src)
+            end
+        end
+    end
+
     @testset "Integration: plugin discovery and instantiation" begin
         @testset "can instantiate all zero-argument plugins" begin
             plugins = PluginDiscovery.get_plugins()

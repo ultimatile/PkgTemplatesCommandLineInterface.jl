@@ -69,6 +69,38 @@ function is_argumentless_plugin(PluginType::Type{<:PkgTemplates.Plugin})::Bool
 end
 
 """
+    canonical_names()::Dict{String,String}
+
+Build a `lowercase => canonical` lookup for every plugin type discovered via
+`get_plugins()`. Used by both `config set` and `create` so CLI keys (which
+ArgParse stores as lowercase, e.g. `"git"`) can be mapped back to the names
+PkgTemplates expects (`"Git"`).
+
+Returns an empty `Dict` when plugin discovery throws at runtime (for example,
+if `get_plugins()` / `PkgTemplates.concretes(PkgTemplates.Plugin)` raises
+while enumerating plugin types). Callers must treat unknown plugin keys as
+a no-op rather than an error to preserve graceful degradation.
+"""
+function canonical_names()::Dict{String,String}
+    plugin_names = String[]
+    try
+        for p in get_plugins()
+            push!(plugin_names, string(nameof(p)))
+        end
+    catch e
+        # Never swallow user cancellation: rethrow Ctrl-C so the CLI can
+        # exit promptly. Other failures fall through to a graceful empty
+        # mapping so callers treat unknown plugin keys as a no-op.
+        if e isa InterruptException
+            rethrow(e)
+        end
+        return Dict{String,String}()
+    end
+    sort!(plugin_names)
+    return Dict(lowercase(n) => n for n in plugin_names)
+end
+
+"""
     get_plugin_details(plugin_name::String)::PluginDetails
 
 Get detailed metadata for a specific plugin.
@@ -122,7 +154,14 @@ function get_plugin_details(plugin_name::String)::PluginDetails
         default_val = try
             # Try using PkgTemplates.defaultkw (official API for @plugin macro)
             PkgTemplates.defaultkw(PluginType, Val(f))
-        catch
+        catch e
+            # Never swallow user cancellation: rethrow Ctrl-C so the CLI can
+            # exit promptly. Any other failure falls through to the
+            # zero-arg-constructor fallback, then to `nothing` if that
+            # also fails.
+            if e isa InterruptException
+                rethrow(e)
+            end
             # Fallback: try instantiating with zero arguments
             if is_argumentless_plugin(PluginType)
                 instance = PluginType()

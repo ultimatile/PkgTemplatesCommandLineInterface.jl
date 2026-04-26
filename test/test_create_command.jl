@@ -1,4 +1,5 @@
 using Test
+using ArgParse
 using PkgTemplatesCommandLineInterface
 import PkgTemplatesCommandLineInterface.CreateCommand
 
@@ -83,37 +84,72 @@ import PkgTemplatesCommandLineInterface.CreateCommand
     end
 
     @testset "parse_plugin_options" begin
+        # ArgParse stores plugin options under the lowercase plugin name
+        # (no "--" prefix) and, with `nargs='?', constant=""`, the value is
+        # one of: nothing (not supplied), "" (--<plugin> with no value), or
+        # a single space-separated KEY=VALUE string.
+
         @testset "single plugin with multiple options" begin
             args = Dict{String, Any}(
-                "--git" => ["ssh=true", "manifest=false"],
+                "git" => "ssh=true manifest=false",
                 "package_name" => "MyPkg"
             )
 
             plugin_options = CreateCommand.parse_plugin_options(args)
 
-            @test haskey(plugin_options, "git")
-            @test plugin_options["git"]["ssh"] == true
-            @test plugin_options["git"]["manifest"] == false
+            @test haskey(plugin_options, "Git")
+            @test plugin_options["Git"]["ssh"] == true
+            @test plugin_options["Git"]["manifest"] == false
         end
 
         @testset "multiple plugins" begin
             args = Dict{String, Any}(
-                "--git" => ["ssh=true"],
-                "--formatter" => ["style=blue", "indent=4"]
+                "git" => "ssh=true",
+                "formatter" => "style=blue indent=4"
             )
 
             plugin_options = CreateCommand.parse_plugin_options(args)
 
-            @test haskey(plugin_options, "git")
-            @test haskey(plugin_options, "formatter")
-            @test plugin_options["git"]["ssh"] == true
-            @test plugin_options["formatter"]["style"] == "blue"
-            @test plugin_options["formatter"]["indent"] == 4
+            @test haskey(plugin_options, "Git")
+            @test haskey(plugin_options, "Formatter")
+            @test plugin_options["Git"]["ssh"] == true
+            @test plugin_options["Formatter"]["style"] == "blue"
+            @test plugin_options["Formatter"]["indent"] == 4
+        end
+
+        @testset "argumentless --plugin enables with empty section" begin
+            # `--git` with no value parses to `args["git"] = ""` (the
+            # `:constant`). parse_plugin_options must record this as
+            # "enable Git with default options".
+            args = Dict{String, Any}(
+                "git" => "",
+                "package_name" => "MyPkg"
+            )
+
+            plugin_options = CreateCommand.parse_plugin_options(args)
+
+            @test haskey(plugin_options, "Git")
+            @test plugin_options["Git"] == Dict{String,Any}()
+        end
+
+        @testset "skips plugin keys that ArgParse left at default (nothing)" begin
+            # Plugin keys that the user did not pass arrive as `nothing`
+            # (the `:default`). They must not appear in plugin_options.
+            args = Dict{String, Any}(
+                "git" => "ssh=true",
+                "formatter" => nothing,
+                "package_name" => "MyPkg"
+            )
+
+            plugin_options = CreateCommand.parse_plugin_options(args)
+
+            @test haskey(plugin_options, "Git")
+            @test !haskey(plugin_options, "Formatter")
         end
 
         @testset "ignores non-plugin keys" begin
             args = Dict{String, Any}(
-                "--git" => ["ssh=true"],
+                "git" => "ssh=true",
                 "package_name" => "MyPkg",
                 "author" => "Test Author"
             )
@@ -121,7 +157,7 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             plugin_options = CreateCommand.parse_plugin_options(args)
 
             @test length(keys(plugin_options)) == 1
-            @test haskey(plugin_options, "git")
+            @test haskey(plugin_options, "Git")
         end
     end
 
@@ -215,14 +251,12 @@ import PkgTemplatesCommandLineInterface.CreateCommand
         @testset "explicit CLI License plugin overrides license_type promotion" begin
             # The license_type → License-plugin promotion is guarded by
             # `!haskey(plugin_options, "License")` so a CLI-supplied License
-            # keeps precedence. parse_plugin_options recognises Vector-shaped
-            # plugin keys, so we drive it with the same shape ArgParse will
-            # emit once issue #7 (key prefix mismatch) is resolved. Until
-            # then this test exercises the precedence logic in execute()
-            # using the recognised "--License" key form directly.
+            # keeps precedence. With issue #7 resolved, parse_plugin_options
+            # consumes the real ArgParse shape: lowercase plugin name keys
+            # carrying a single space-separated KEY=VALUE string.
             result, out = _dry_run_with_config(
                 Dict{String,Any}("license_type" => "MIT"),
-                Dict{String,Any}("--License" => ["name=Apache"]),
+                Dict{String,Any}("license" => "name=Apache"),
             )
             @test result.success == true
             # CLI value wins; the config license_type must not be applied.
@@ -265,6 +299,119 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             @test result.success == true
             @test occursin("Plugin: Formatter", out)
             @test occursin("style = blue", out)
+        end
+    end
+
+    # Contract: real CLI argv strings flow through ArgParse, parse_plugin_options,
+    # and reach the dry-run plan. This is the issue #7 regression net — the
+    # earlier synthetic-arg tests passed even though the production CLI path
+    # silently dropped every plugin option.
+    @testset "create CLI plugin options reach PackageGenerator (issue #7)" begin
+        # Helper: parse `argv` against the real `jtc` settings tree and run
+        # `CreateCommand.execute` against an empty XDG config so config
+        # defaults cannot mask CLI inputs. Returns (result, captured stdout).
+        function _e2e_dry_run(argv::Vector{String})
+            config_dir = mktempdir()
+            out_dir = mktempdir()
+            original_xdg = get(ENV, "XDG_CONFIG_HOME", nothing)
+            try
+                ENV["XDG_CONFIG_HOME"] = config_dir
+
+                settings = PkgTemplatesCommandLineInterface.create_argument_parser()
+                PkgTemplatesCommandLineInterface.add_dynamic_plugin_options!(settings)
+
+                full_argv = vcat(argv, ["--output-dir", out_dir, "--dry-run"])
+                parsed = ArgParse.parse_args(full_argv, settings)
+                @test parsed["%COMMAND%"] == "create"
+                sub_args = parsed["create"]
+
+                pipe = Pipe()
+                result = redirect_stdout(pipe) do
+                    CreateCommand.execute(sub_args)
+                end
+                close(pipe.in)
+                output = read(pipe.out, String)
+                close(pipe.out)
+                return result, output
+            finally
+                if original_xdg === nothing
+                    delete!(ENV, "XDG_CONFIG_HOME")
+                else
+                    ENV["XDG_CONFIG_HOME"] = original_xdg
+                end
+                rm(config_dir; recursive=true, force=true)
+                rm(out_dir; recursive=true, force=true)
+            end
+        end
+
+        @testset "--git \"ssh=true manifest=false\" populates Git plugin options" begin
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u", "--git", "ssh=true manifest=false"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            @test occursin("ssh = true", out)
+            @test occursin("manifest = false", out)
+        end
+
+        @testset "--readme (no value) enables Readme with default options" begin
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u", "--readme"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Readme", out)
+        end
+
+        @testset "--license overrides config license_type via CLI path" begin
+            # Seed config with license_type=MIT, then assert CLI --license wins.
+            config_dir = mktempdir()
+            out_dir = mktempdir()
+            original_xdg = get(ENV, "XDG_CONFIG_HOME", nothing)
+            try
+                ENV["XDG_CONFIG_HOME"] = config_dir
+                ConfigManager = PkgTemplatesCommandLineInterface.ConfigManager
+                ConfigManager.save_config(Dict{String,Any}(
+                    "default" => Dict{String,Any}("license_type" => "MIT"),
+                ))
+
+                settings = PkgTemplatesCommandLineInterface.create_argument_parser()
+                PkgTemplatesCommandLineInterface.add_dynamic_plugin_options!(settings)
+                argv = ["create", "E2EPkg", "--user", "u",
+                        "--license", "name=Apache",
+                        "--output-dir", out_dir, "--dry-run"]
+                parsed = ArgParse.parse_args(argv, settings)
+
+                pipe = Pipe()
+                result = redirect_stdout(pipe) do
+                    CreateCommand.execute(parsed["create"])
+                end
+                close(pipe.in)
+                output = read(pipe.out, String)
+                close(pipe.out)
+
+                @test result.success == true
+                @test occursin("name = Apache", output)
+                @test !occursin("name = MIT", output)
+            finally
+                if original_xdg === nothing
+                    delete!(ENV, "XDG_CONFIG_HOME")
+                else
+                    ENV["XDG_CONFIG_HOME"] = original_xdg
+                end
+                rm(config_dir; recursive=true, force=true)
+                rm(out_dir; recursive=true, force=true)
+            end
+        end
+
+        @testset "no plugin args yields empty plugin_options" begin
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u"],
+            )
+            @test result.success == true
+            # The dry-run prints "Plugin options:" once, then nothing under
+            # it when no plugins were selected. Asserting absence of any
+            # "Plugin: " line is the cleanest way to confirm.
+            @test !occursin("Plugin: ", out)
         end
     end
 end
