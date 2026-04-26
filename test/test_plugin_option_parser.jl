@@ -91,6 +91,15 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
             @test PluginOptionParser.split_string("a=1   b=2") == ["a=1", "b=2"]
         end
 
+        @testset "treats tabs and newlines as separators" begin
+            # The docstring claims "whitespace" splitting; pasted multiline
+            # input must parse the same as single-line.
+            @test PluginOptionParser.split_string("a=1\tb=2") == ["a=1", "b=2"]
+            @test PluginOptionParser.split_string("a=1\nb=2") == ["a=1", "b=2"]
+            @test PluginOptionParser.split_string("a=1\t\nb=2  c=3") ==
+                  ["a=1", "b=2", "c=3"]
+        end
+
         @testset "empty input yields empty vector" begin
             @test PluginOptionParser.split_string("") == String[]
             @test PluginOptionParser.split_string("   ") == String[]
@@ -159,6 +168,17 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
             @test PluginOptionParser.parse_kv_string("standalone") == Dict{String,Any}()
             # But a real KV next to a malformed token still produces the KV.
             @test PluginOptionParser.parse_kv_string("standalone k=v") ==
+                  Dict{String,Any}("k" => "v")
+        end
+
+        @testset "empty-key tokens are dropped" begin
+            # `=value` (and similar) must not produce a Dict entry under
+            # the empty-string key — that would silently corrupt downstream
+            # plugin construction and TOML writes.
+            @test PluginOptionParser.parse_kv_string("=value") == Dict{String,Any}()
+            @test PluginOptionParser.parse_kv_string("  =x") == Dict{String,Any}()
+            # A real KV alongside an empty-key token still parses cleanly.
+            @test PluginOptionParser.parse_kv_string("=junk k=v") ==
                   Dict{String,Any}("k" => "v")
         end
     end

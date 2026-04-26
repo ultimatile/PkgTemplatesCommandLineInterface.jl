@@ -97,7 +97,9 @@ function split_string(s::AbstractString)::Vector{String}
         elseif c == ']' && !in_quotes
             bracket_depth = max(bracket_depth - 1, 0)
             print(current, c)
-        elseif c == ' ' && !in_quotes && bracket_depth == 0
+        elseif isspace(c) && !in_quotes && bracket_depth == 0
+            # Treat any whitespace (spaces, tabs, newlines) as a separator
+            # so pasted multiline bundles parse the same as single-line ones.
             piece = String(strip(String(take!(current))))
             if !isempty(piece)
                 push!(parts, piece)
@@ -127,7 +129,13 @@ function parse_kv_string(s::AbstractString)::Dict{String,Any}
     for part in split_string(s)
         if contains(part, '=')
             k, v = split(part, '=', limit=2)
-            options[String(strip(k))] = parse_value(strip(v))
+            key = String(strip(k))
+            # Drop empty-key tokens (e.g. `=value`, `  =x`) so downstream
+            # plugin construction and TOML writes never see an empty
+            # option name.
+            if !isempty(key)
+                options[key] = parse_value(strip(v))
+            end
         end
     end
     return options
