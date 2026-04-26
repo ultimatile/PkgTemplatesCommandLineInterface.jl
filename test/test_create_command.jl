@@ -390,5 +390,53 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             # "Plugin: " line is the cleanest way to confirm.
             @test !occursin("Plugin: ", out)
         end
+
+        # Contract: with the parser unified under PluginOptionParser
+        # (issue #9), the input shapes that worked under `config set`
+        # must also work end-to-end under `create`. Each case below is
+        # the same shape that issue #9's acceptance criteria call out.
+        @testset "issue #9: quoted comma value preserved across CLI path" begin
+            # `--git 'name="Doe, Jane" email=x'` must reach Git as a
+            # single string `name`, not as a Vector split on the comma.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "name=\"Doe, Jane\" email=x"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            @test occursin("name = Doe, Jane", out)
+            @test occursin("email = x", out)
+        end
+
+        @testset "issue #9: bracket array reaches plugin options as Vector" begin
+            # `--git 'ignore=[.DS_Store, .vscode]'` must arrive as
+            # Vector{String}, not be split on whitespace inside the
+            # bracket nor flattened into a single string.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ignore=[.DS_Store, .vscode]"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            # The dry-run prints `ignore = [".DS_Store", ".vscode"]` for
+            # Vector values; check both elements appear under the Git
+            # plugin section.
+            @test occursin(".DS_Store", out)
+            @test occursin(".vscode", out)
+        end
+
+        @testset "issue #9: version-like value stays a String" begin
+            # `--projectfile version=1.10` must reach ProjectFile as the
+            # string "1.10", not as Float64(1.1) (which loses the trailing
+            # zero and breaks VersionNumber construction downstream).
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--projectfile", "version=1.10"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: ProjectFile", out)
+            @test occursin("version = 1.10", out)
+            @test !occursin("version = 1.1\n", out)
+        end
     end
 end
