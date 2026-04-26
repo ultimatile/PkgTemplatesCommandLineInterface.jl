@@ -87,7 +87,13 @@ function canonical_names()::Dict{String,String}
         for p in get_plugins()
             push!(plugin_names, string(nameof(p)))
         end
-    catch
+    catch e
+        # Never swallow user cancellation: rethrow Ctrl-C so the CLI can
+        # exit promptly. Other failures fall through to a graceful empty
+        # mapping so callers treat unknown plugin keys as a no-op.
+        if e isa InterruptException
+            rethrow(e)
+        end
         return Dict{String,String}()
     end
     sort!(plugin_names)

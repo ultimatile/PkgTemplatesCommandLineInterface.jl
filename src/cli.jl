@@ -203,10 +203,12 @@ function add_dynamic_plugin_options!(target;
             continue
         end
         option_name = "--$(lowercase(plugin_name))"
-        is_argless = PluginDiscovery.is_argumentless_plugin(plugin)
 
         if argumentless_as_flag
-            if is_argless
+            # is_argumentless_plugin instantiates the plugin to check the
+            # zero-arg constructor, which has side effects we'd rather not
+            # pay during CLI startup unless the registration shape needs it.
+            if PluginDiscovery.is_argumentless_plugin(plugin)
                 ArgParse.add_arg_table!(target,
                     [option_name],
                     Dict(
