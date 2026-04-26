@@ -443,6 +443,48 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
             end
         end
 
+        @testset "plugin value shape contract: nothing skips, \"\" enables" begin
+            # ArgParse registers config-set plugin options as
+            # `nargs='?', constant="", default=nothing`, so the three legal
+            # shapes are: not specified (nothing), bare flag (""), and a
+            # KEY=VALUE bundle. Lock that contract: nothing must NOT create
+            # a section, "" must enable the plugin with an empty section
+            # (so create can pick it up), and a bundle persists its options.
+            tmpdir = mktempdir()
+            try
+                # Case 1: unspecified — no section appears
+                noop_path = joinpath(tmpdir, "noop.toml")
+                noop_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "author" => Any["A"],
+                        "git" => nothing,
+                        "config-file" => noop_path,
+                    ),
+                )
+                @test ConfigCommand.execute(noop_args).success == true
+                cfg = TOML.parsefile(noop_path)
+                @test !haskey(cfg["default"], "Git")
+
+                # Case 2: bare flag — section appears, empty body
+                enable_path = joinpath(tmpdir, "enable.toml")
+                enable_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "git" => "",
+                        "config-file" => enable_path,
+                    ),
+                )
+                @test ConfigCommand.execute(enable_args).success == true
+                cfg = TOML.parsefile(enable_path)
+                @test haskey(cfg["default"], "Git")
+                @test cfg["default"]["Git"] isa AbstractDict
+                @test isempty(cfg["default"]["Git"])
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
         @testset "quoted plugin string values stay strings" begin
             tmpdir = mktempdir()
             try
