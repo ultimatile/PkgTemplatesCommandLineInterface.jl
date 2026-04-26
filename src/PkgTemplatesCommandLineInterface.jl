@@ -27,6 +27,9 @@ include("config_manager.jl")
 # Include PluginDiscovery module
 include("plugin_discovery.jl")
 
+# Include PluginOptionParser module (shared by CreateCommand and ConfigCommand)
+include("plugin_option_parser.jl")
+
 # Include TemplateManager module
 include("template_manager.jl")
 

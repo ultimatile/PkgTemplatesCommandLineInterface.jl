@@ -55,33 +55,10 @@ import PkgTemplatesCommandLineInterface.CreateCommand
         end
     end
 
-    @testset "parse_plugin_option_value" begin
-        @testset "boolean values" begin
-            @test CreateCommand.parse_plugin_option_value("ssh=true") == ("ssh", true)
-            @test CreateCommand.parse_plugin_option_value("ssh=false") == ("ssh", false)
-        end
-
-        @testset "integer values" begin
-            @test CreateCommand.parse_plugin_option_value("indent=4") == ("indent", 4)
-            @test CreateCommand.parse_plugin_option_value("count=123") == ("count", 123)
-        end
-
-        @testset "float values" begin
-            @test CreateCommand.parse_plugin_option_value("version=1.5") == ("version", 1.5)
-            @test CreateCommand.parse_plugin_option_value("ratio=0.75") == ("ratio", 0.75)
-        end
-
-        @testset "string values" begin
-            @test CreateCommand.parse_plugin_option_value("style=blue") == ("style", "blue")
-            @test CreateCommand.parse_plugin_option_value("name=MyPkg") == ("name", "MyPkg")
-        end
-
-        @testset "array values" begin
-            key, val = CreateCommand.parse_plugin_option_value("items=[a,b,c]")
-            @test key == "items"
-            @test val == ["a", "b", "c"]
-        end
-    end
+    # `parse_plugin_option_value` was deleted in #9 (issue #9): the broken
+    # CreateCommand-local copy (Float coercion, no quote handling) is
+    # replaced by PluginOptionParser.parse_value, whose contract is
+    # exercised in test/test_plugin_option_parser.jl.
 
     @testset "parse_plugin_options" begin
         # ArgParse stores plugin options under the lowercase plugin name
