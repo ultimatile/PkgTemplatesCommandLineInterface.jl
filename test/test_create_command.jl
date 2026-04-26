@@ -322,7 +322,7 @@ import PkgTemplatesCommandLineInterface.CreateCommand
 
                 full_argv = vcat(argv, ["--output-dir", out_dir, "--dry-run"])
                 parsed = ArgParse.parse_args(full_argv, settings)
-                @assert parsed["%COMMAND%"] == "create"
+                @test parsed["%COMMAND%"] == "create"
                 sub_args = parsed["create"]
 
                 pipe = Pipe()

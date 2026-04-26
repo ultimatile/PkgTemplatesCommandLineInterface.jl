@@ -231,7 +231,7 @@ function add_dynamic_plugin_options!(target;
                     :constant => "",
                     :default => nothing,
                     :metavar => "KEY=VALUE",
-                    :help => "Set $plugin_name plugin defaults (omit value to enable with defaults)"
+                    :help => "Enable $plugin_name plugin (omit value to use defaults, or supply KEY=VALUE pairs)"
                 ))
         end
     end
