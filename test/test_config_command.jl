@@ -126,9 +126,11 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
 
             updated = ConfigCommand.update_config(existing_config, new_values)
 
-            @test haskey(updated["default"], "git")
-            @test updated["default"]["git"]["manifest"] == true
-            @test updated["default"]["git"]["ssh"] == false
+            # Dotted plugin names land under their canonical PkgTemplates form
+            # (`Git`, not `git`) so CreateCommand picks them up as a plugin.
+            @test haskey(updated["default"], "Git")
+            @test updated["default"]["Git"]["manifest"] == true
+            @test updated["default"]["Git"]["ssh"] == false
         end
 
         @testset "ignores command-related keys" begin
@@ -284,6 +286,271 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
                 ENV["XDG_CONFIG_HOME"] = original_xdg
             end
             rm(test_dir; recursive=true, force=true)
+        end
+    end
+
+    # Contract: parse_plugin_option_value preserves the user's intent across
+    # types — bools, ints, decimals (kept as strings so VersionNumber survives),
+    # bracket arrays, comma-promoted arrays, and quoted strings.
+    @testset "parse_plugin_option_value contracts" begin
+        @testset "boolean synonyms cover true/yes/false/no but not 0/1" begin
+            @test ConfigCommand.parse_plugin_option_value("true") === true
+            @test ConfigCommand.parse_plugin_option_value("YES") === true
+            @test ConfigCommand.parse_plugin_option_value("false") === false
+            @test ConfigCommand.parse_plugin_option_value("No") === false
+            # `1`/`0` must round-trip as integers so plugin int options like
+            # `indent=1` don't become booleans.
+            @test ConfigCommand.parse_plugin_option_value("1") === 1
+            @test ConfigCommand.parse_plugin_option_value("0") === 0
+        end
+
+        @testset "integer values keep their type" begin
+            @test ConfigCommand.parse_plugin_option_value("42") === 42
+            @test ConfigCommand.parse_plugin_option_value("100") === 100
+        end
+
+        @testset "decimal-shaped values stay strings" begin
+            # ProjectFile.version expects a string parseable into VersionNumber;
+            # Float coercion both breaks the constructor and loses trailing zeros.
+            @test ConfigCommand.parse_plugin_option_value("1.10") == "1.10"
+            @test ConfigCommand.parse_plugin_option_value("1.10") isa AbstractString
+            @test ConfigCommand.parse_plugin_option_value("1.2") == "1.2"
+        end
+
+        @testset "bracket-form arrays parse to Vector{String}" begin
+            @test ConfigCommand.parse_plugin_option_value("[a,b,c]") == ["a", "b", "c"]
+            @test ConfigCommand.parse_plugin_option_value("[]") == String[]
+            # Quoted items inside brackets keep their internal text
+            @test ConfigCommand.parse_plugin_option_value("[\"a b\",c]") == ["a b", "c"]
+        end
+
+        @testset "unquoted comma values promote to arrays" begin
+            @test ConfigCommand.parse_plugin_option_value("a,b,c") == ["a", "b", "c"]
+            @test ConfigCommand.parse_plugin_option_value(".DS_Store,.vscode") ==
+                  [".DS_Store", ".vscode"]
+        end
+
+        @testset "quoted strings keep commas as literal text" begin
+            # Without this contract, Git.name="Doe, Jane" silently becomes a
+            # Vector{String} and the plugin constructor fails.
+            @test ConfigCommand.parse_plugin_option_value("\"Doe, Jane\"") == "Doe, Jane"
+            @test ConfigCommand.parse_plugin_option_value("'a, b, c'") == "a, b, c"
+        end
+
+        @testset "plain strings flow through unchanged" begin
+            @test ConfigCommand.parse_plugin_option_value("blue") == "blue"
+            @test ConfigCommand.parse_plugin_option_value("MyPkg") == "MyPkg"
+        end
+    end
+
+    # Contract: ConfigCommand.execute accepts both legacy flat dicts and the
+    # ArgParse-shaped nested dict, and writes the same values either way.
+    @testset "execute() ArgParse-shape contracts" begin
+        @testset "nested args dict round-trips set then show" begin
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "nested.toml")
+                set_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "author" => Any["Alice"],
+                        "user" => "alice",
+                        "config-file" => custom_path,
+                    ),
+                )
+                @test ConfigCommand.execute(set_args).success == true
+                @test isfile(custom_path)
+
+                show_args = Dict{String,Any}(
+                    "%COMMAND%" => "show",
+                    "show" => Dict{String,Any}("config-file" => custom_path),
+                )
+                pipe = Pipe()
+                result = redirect_stdout(pipe) do
+                    ConfigCommand.execute(show_args)
+                end
+                close(pipe.in)
+                output = read(pipe.out, String)
+                close(pipe.out)
+                @test result.success == true
+                @test occursin("Alice", output)
+                @test occursin("alice", output)
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "repeated --author becomes Vector{String}" begin
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "vec.toml")
+                set_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "author" => Any["Alice", "Bob"],
+                        "config-file" => custom_path,
+                    ),
+                )
+                @test ConfigCommand.execute(set_args).success == true
+                cfg = TOML.parsefile(custom_path)
+                @test cfg["default"]["author"] == ["Alice", "Bob"]
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "--no-mise persists with_mise=false (not literal with-mise)" begin
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "mise.toml")
+                set_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "no-mise" => true,
+                        "with-mise" => false,
+                        "config-file" => custom_path,
+                    ),
+                )
+                @test ConfigCommand.execute(set_args).success == true
+                cfg = TOML.parsefile(custom_path)
+                @test cfg["default"]["with_mise"] === false
+                # Don't pollute the config with the dashed CLI keys.
+                @test !haskey(cfg["default"], "with-mise")
+                @test !haskey(cfg["default"], "no-mise")
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "lowercase plugin keys map to canonical PkgTemplates names" begin
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "plugin.toml")
+                set_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "git" => "ssh=true",
+                        "config-file" => custom_path,
+                    ),
+                )
+                @test ConfigCommand.execute(set_args).success == true
+                cfg = TOML.parsefile(custom_path)
+                # Stored under the canonical capitalized name PkgTemplates expects
+                @test haskey(cfg["default"], "Git")
+                @test cfg["default"]["Git"]["ssh"] === true
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "plugin value shape contract: nothing skips, \"\" enables" begin
+            # ArgParse registers config-set plugin options as
+            # `nargs='?', constant="", default=nothing`, so the three legal
+            # shapes are: not specified (nothing), bare flag (""), and a
+            # KEY=VALUE bundle. Lock that contract: nothing must NOT create
+            # a section, "" must enable the plugin with an empty section
+            # (so create can pick it up), and a bundle persists its options.
+            tmpdir = mktempdir()
+            try
+                # Case 1: unspecified — no section appears
+                noop_path = joinpath(tmpdir, "noop.toml")
+                noop_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "author" => Any["A"],
+                        "git" => nothing,
+                        "config-file" => noop_path,
+                    ),
+                )
+                @test ConfigCommand.execute(noop_args).success == true
+                cfg = TOML.parsefile(noop_path)
+                @test !haskey(cfg["default"], "Git")
+
+                # Case 2: bare flag — section appears, empty body
+                enable_path = joinpath(tmpdir, "enable.toml")
+                enable_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "git" => "",
+                        "config-file" => enable_path,
+                    ),
+                )
+                @test ConfigCommand.execute(enable_args).success == true
+                cfg = TOML.parsefile(enable_path)
+                @test haskey(cfg["default"], "Git")
+                @test cfg["default"]["Git"] isa AbstractDict
+                @test isempty(cfg["default"]["Git"])
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "quoted plugin string values stay strings" begin
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "quote.toml")
+                set_args = Dict{String,Any}(
+                    "%COMMAND%" => "set",
+                    "set" => Dict{String,Any}(
+                        "git" => "name=\"Doe, Jane\"",
+                        "config-file" => custom_path,
+                    ),
+                )
+                @test ConfigCommand.execute(set_args).success == true
+                cfg = TOML.parsefile(custom_path)
+                @test cfg["default"]["Git"]["name"] == "Doe, Jane"
+                @test cfg["default"]["Git"]["name"] isa AbstractString
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "config-file is not persisted as a [default] entry" begin
+            # Direct callers may pass only `config-file` to redirect the
+            # destination; that key must never end up under [default].
+            tmpdir = mktempdir()
+            try
+                custom_path = joinpath(tmpdir, "redirect.toml")
+                args = Dict{String,Any}(
+                    "%SUBCOMMAND%" => "set",
+                    "config-file" => custom_path,
+                    "formatter.style" => "blue",
+                )
+                @test ConfigCommand.execute(args).success == true
+                cfg = TOML.parsefile(custom_path)
+                @test !haskey(cfg["default"], "config-file")
+                @test cfg["default"]["Formatter"]["style"] == "blue"
+            finally
+                rm(tmpdir; recursive=true, force=true)
+            end
+        end
+
+        @testset "mixed flat dict (CLI key + dotted key) round-trips both" begin
+            # Direct callers still pass the legacy flat shape; the dotted key
+            # used to be silently dropped once the CLI-style branch was taken.
+            test_dir = mktempdir()
+            original_xdg = get(ENV, "XDG_CONFIG_HOME", nothing)
+            try
+                ENV["XDG_CONFIG_HOME"] = test_dir
+                args = Dict{String,Any}(
+                    "%SUBCOMMAND%" => "set",
+                    "author" => "A",
+                    "formatter.style" => "blue",
+                )
+                @test ConfigCommand.execute(args).success == true
+                cfg = ConfigCommand.ConfigManager.load_config()
+                @test cfg["default"]["author"] == "A"
+                # Section name is canonicalized so the entry is reachable by
+                # CreateCommand's plugin extraction.
+                @test cfg["default"]["Formatter"]["style"] == "blue"
+            finally
+                if original_xdg === nothing
+                    delete!(ENV, "XDG_CONFIG_HOME")
+                else
+                    ENV["XDG_CONFIG_HOME"] = original_xdg
+                end
+                rm(test_dir; recursive=true, force=true)
+            end
         end
     end
 end

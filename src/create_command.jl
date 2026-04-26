@@ -148,6 +148,53 @@ function execute(args::Dict{String, Any})::CommandResult
             end
         end
 
+        # Transform author (singular) to authors (plural array) for PkgTemplates.jl.
+        # `config set --author A --author B` may persist author as Vector{String};
+        # accept that shape too so the value flows into PkgTemplates unchanged.
+        if haskey(merged_options, "author") && !haskey(merged_options, "authors")
+            author = merged_options["author"]
+            merged_options["authors"] = if author isa AbstractVector
+                String[String(a) for a in author]
+            elseif author == ""
+                String[]
+            else
+                [author]
+            end
+        end
+
+        # Attach `mail` to every author entry that doesn't already carry an
+        # email so the generated Project.toml records `Name <mail>` — this is
+        # how `config set --mail` and `create --mail` reach PkgTemplates.
+        mail = get(merged_options, "mail", nothing)
+        if mail isa AbstractString && !isempty(mail)
+            authors = get(merged_options, "authors", nothing)
+            if authors isa AbstractVector && !isempty(authors)
+                merged_options["authors"] = String[
+                    occursin('<', String(a)) ? String(a) : "$(String(a)) <$mail>"
+                    for a in authors
+                ]
+            end
+        end
+
+        # Promote a config-only license (saved as `license_type` by `config set
+        # --license`) into the License plugin section so PackageGenerator picks
+        # it up. CLI-supplied License options keep precedence.
+        config_license = get(merged_options, "license_type", nothing)
+        if config_license !== nothing && config_license != "" &&
+           !haskey(plugin_options, "License")
+            plugin_options["License"] = Dict{String,Any}("name" => config_license)
+        end
+
+        # Normalize the mise toggle: ArgParse stores the CLI flags under
+        # "with-mise"/"no-mise" (dashes), while the persisted config key is
+        # "with_mise". Reconcile both so the explicit CLI flag wins, which is
+        # what the user expects when overriding a saved default.
+        if get(args, "no-mise", false) === true
+            merged_options["with_mise"] = false
+        elseif get(args, "with-mise", false) === true
+            merged_options["with_mise"] = true
+        end
+
         # Dry-run check
         if get(args, "dry-run", false)
             return show_dry_run_plan(merged_options, plugin_options, args)
@@ -162,18 +209,12 @@ function execute(args::Dict{String, Any})::CommandResult
             )
         end
 
-        # Transform author (singular) to authors (plural array) for PkgTemplates.jl
-        if haskey(merged_options, "author") && !haskey(merged_options, "authors")
-            author = merged_options["author"]
-            merged_options["authors"] = author == "" ? String[] : [author]
-        end
-
         # Create package
         output_dir = get(merged_options, "output-dir", pwd())
         PackageGenerator.create_package(package_name, merged_options, plugin_options, output_dir)
 
-        # Generate mise config if requested (--no-mise takes precedence)
-        if !get(args, "no-mise", false) && get(merged_options, "with_mise", true)
+        # Generate mise config when enabled (default: true if unspecified)
+        if get(merged_options, "with_mise", true)
             try
                 TemplateManager.generate_mise_config(package_name, merged_options, output_dir)
             catch e
