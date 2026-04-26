@@ -10,6 +10,8 @@ documented (Float coercion, missing quote handling, etc.).
 """
 module PluginOptionParser
 
+import ..PkgTemplatesCommandLineInterface: PluginOptionFormatError
+
 export parse_value, split_string, parse_kv_string
 
 """
@@ -138,6 +140,12 @@ type coercion. This means `key=value` must remain a single token —
 whitespace around `=` (for example, `k= v` or `k =v`) will split the
 pair across tokens and will not be parsed as a single option.
 
+Throws `PluginOptionFormatError` when an unquoted value contains both
+`,` and `=`. That shape (e.g. `aqua=true,project=true`) almost always
+means the user tried to comma-separate KEY=VALUE pairs, which clig.dev
+flags as an anti-pattern. The error message points the user at the
+canonical forms.
+
 Returns an empty `Dict` for an empty input or a string with no `=` tokens.
 """
 function parse_kv_string(s::AbstractString)::Dict{String,Any}
@@ -150,11 +158,48 @@ function parse_kv_string(s::AbstractString)::Dict{String,Any}
             # plugin construction and TOML writes never see an empty
             # option name.
             if !isempty(key)
-                options[key] = parse_value(strip(v))
+                stripped_v = String(strip(v))
+                _reject_comma_separated_kv(key, stripped_v)
+                options[key] = parse_value(stripped_v)
             end
         end
     end
     return options
+end
+
+# Reject a comma-separated KEY=VALUE list shape (the clig.dev anti-pattern).
+# The signal is "unquoted value that contains both `,` and `=`": a quoted
+# value like `name="Doe, Jane"` is a literal string, and a list value like
+# `ignore=.DS_Store,.vscode` has a comma but no `=` in the value side.
+function _reject_comma_separated_kv(key::AbstractString, value::AbstractString)
+    isempty(value) && return
+    quoted = (startswith(value, '"') && endswith(value, '"')) ||
+             (startswith(value, '\'') && endswith(value, '\''))
+    bracketed = startswith(value, '[') && endswith(value, ']')
+    if !quoted && !bracketed && occursin(',', value) && occursin('=', value)
+        # Reconstruct what the user most likely typed for the friendly
+        # message, and offer the two canonical alternatives.
+        plugin_hint = "<plugin>"
+        # Build the suggested repeat-flag form by splitting the malformed
+        # value on commas and pairing each piece with the original key
+        # only for the leading piece (subsequent pieces already carry
+        # their own `=`, so we emit them as separate flags).
+        pieces = String.(split(value, ','))
+        repeat_form = "--$plugin_hint $key=$(strip(pieces[1]))"
+        for p in pieces[2:end]
+            repeat_form *= " --$plugin_hint $(strip(p))"
+        end
+        bundle_form = "--$plugin_hint \"$key=$(strip(pieces[1]))" *
+                      join([" $(strip(p))" for p in pieces[2:end]]) * "\""
+        msg = """
+            Plugin option value $(repr(value)) for key $(repr(key)) looks like a
+            comma-separated list of KEY=VALUE pairs, which is not supported.
+            Please use one of:
+              $repeat_form
+              $bundle_form"""
+        throw(PluginOptionFormatError(msg))
+    end
+    return
 end
 
 end  # module PluginOptionParser
