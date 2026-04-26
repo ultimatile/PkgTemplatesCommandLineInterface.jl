@@ -207,14 +207,20 @@ function _reject_comma_separated_kv(key::AbstractString,
         # Reconstruct the comma-separated pieces so the suggestion uses
         # exactly what the user typed. For shape_split the second piece
         # comes from the next token (which already contains `=`).
-        pieces = if shape_inline
+        raw_pieces = if shape_inline
             [String(strip(p)) for p in split(value, ',')]
         else
             base = chopsuffix(value, ",")
             String[String(strip(base)), String(strip(next_part))]
         end
-        # Filter out any empty pieces from things like trailing `,,`.
-        pieces = filter(!isempty, pieces)
+        # Keep the first piece even if empty (the user typed `key=` with
+        # an empty value, and the suggestion must echo that). Drop later
+        # empties to avoid suggesting `--flag aqua= --flag --flag b=2`
+        # noise from inputs like `aqua=,,b=2`.
+        pieces = isempty(raw_pieces) ? String[""] : String[raw_pieces[1]]
+        for p in raw_pieces[2:end]
+            isempty(p) || push!(pieces, p)
+        end
 
         flag = something(plugin_flag, "--<plugin>")
         # Build the canonical replacement forms with the real flag name

@@ -249,6 +249,21 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
                 "aqua=true ,project=true",
             )
 
+            # Edge case: empty first value (`aqua=,project=true`) must
+            # not be rewritten into `aqua=project=true` in the
+            # canonical-form suggestion. The first piece — even when
+            # empty — represents the user's intent for that key.
+            err_empty = try
+                PluginOptionParser.parse_kv_string("aqua=,project=true";
+                                                    plugin_flag="--tests")
+                nothing
+            catch e
+                e
+            end
+            @test err_empty isa PluginOptionFormatError
+            @test occursin("aqua=", err_empty.message)
+            @test !occursin("aqua=project=true", err_empty.message)
+
             # The error message must mention both the offending key/value
             # and at least one canonical alternative so the user can fix
             # their command without reading source.
