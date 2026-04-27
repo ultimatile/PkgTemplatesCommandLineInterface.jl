@@ -207,6 +207,28 @@ function _reject_top_level_comma(s::AbstractString,
         end
         prev_char = c
     end
+
+    # End-of-scan: reject unterminated quotes / brackets so a typo can
+    # not stash a stray comma inside an "open" region and bypass the
+    # comma-KV guardrail. Without this, `a=1[,b=2` (missing `]`) parses
+    # as a single string value and silently drops the second pair.
+    flag = something(plugin_flag, "--<plugin>")
+    if in_quotes
+        msg = string(
+            "Plugin option bundle ", repr(String(s)),
+            " contains an unterminated ", repr(string(quote_char)),
+            " quote. Close the quote or pass the value as a complete ",
+            "quoted token after ", flag, ".",
+        )
+        throw(PluginOptionFormatError(msg))
+    elseif bracket_depth != 0
+        msg = string(
+            "Plugin option bundle ", repr(String(s)),
+            " contains an unterminated `[...]` list value. ",
+            "Close the list with `]` before adding more options.",
+        )
+        throw(PluginOptionFormatError(msg))
+    end
     return
 end
 

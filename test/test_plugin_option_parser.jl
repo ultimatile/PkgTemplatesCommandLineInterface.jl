@@ -279,6 +279,25 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
                   Dict{String,Any}("items" => ["a=1", "b=2"])
         end
 
+        @testset "issue #5: unterminated `[...]` cannot bypass comma rejection" begin
+            # Without the end-of-scan validation, `a=1[,b=2` would leave
+            # bracket_depth > 0 at the comma, suppress comma rejection,
+            # and silently parse as `Dict("a" => "1[,b=2")`.
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "a=1[,b=2",
+            )
+        end
+
+        @testset "issue #5: unterminated quote cannot bypass comma rejection" begin
+            # Same shape with an unmatched `"` instead of `[`. The user
+            # almost certainly mistyped a closing quote; either way the
+            # bundle is malformed and any commas inside the open region
+            # would otherwise be hidden from the top-level scan.
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "a=\"unterminated, b=2",
+            )
+        end
+
         @testset "issue #5: every whitespace variant of comma-KV rejected uniformly" begin
             # The unified top-level-comma rule must catch all four shapes
             # discovered during the review-pipeline (which previously

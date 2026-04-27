@@ -61,15 +61,16 @@ Translate CLI plugin options from `args` into the
 ArgParse stores plugin option keys as the lowercase plugin name (no `--`
 prefix). With the `:append_arg, nargs='?', constant="", default=nothing`
 registration, the value is one of:
-- `nothing`     → `--<plugin>` not supplied; skip.
-- `String[]`    → `--<plugin>` not supplied (alternate ArgParse default
-  for `:append_arg`); skip.
-- `Vector`      → one element per `--<plugin>` invocation. Each element
-  is `""` (bare flag → use defaults) or a `"k=v ..."` bundle. Elements
-  are merged left-to-right with last-wins on duplicate keys, matching
-  POSIX/GNU/clig.dev convention for repeat-flag aggregation.
-- `String`      → legacy direct-call shape kept so tests / direct callers
-  can still pass a single bundle. Equivalent to a 1-element vector.
+- `nothing`            → `--<plugin>` not supplied; skip.
+- empty `AbstractVector` (typically `Any[]`) → `--<plugin>` not supplied
+  under the `:append_arg` default; skip. ArgParse picks the element type
+  at runtime and we do not depend on it being `String`.
+- non-empty `AbstractVector` → one element per `--<plugin>` invocation.
+  Each element is `""` (bare flag → use defaults) or a `"k=v ..."`
+  bundle. Elements are merged left-to-right with last-wins on duplicate
+  keys, matching POSIX/GNU/clig.dev convention for repeat-flag aggregation.
+- `String`             → legacy direct-call shape kept so tests / direct
+  callers can still pass a single bundle. Equivalent to a 1-element vector.
 
 Output keys are canonicalised against `PluginDiscovery.canonical_names()`
 so PkgTemplates plugin types resolve via `getfield(PkgTemplates, Symbol(...))`.
