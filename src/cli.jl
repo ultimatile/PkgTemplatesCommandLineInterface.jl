@@ -234,7 +234,7 @@ function add_dynamic_plugin_options!(target;
                     :constant => "",
                     :default => nothing,
                     :metavar => "KEY=VALUE",
-                    :help => "Enable $plugin_name plugin. Omit value to use defaults; pass KEY=VALUE pairs as one shell-quoted string (--$(lowercase(plugin_name)) \"k1=v1 k2=v2\") or repeat the flag (--$(lowercase(plugin_name)) k1=v1 --$(lowercase(plugin_name)) k2=v2). Comma-separated KEY=VALUE is rejected."
+                    :help => "Enable $plugin_name plugin. Omit value to use defaults; pass KEY=VALUE pairs as a shell-quoted bundle (--$(lowercase(plugin_name)) \"k1=v1 k2=v2\") or repeat the flag (--$(lowercase(plugin_name)) k1=v1 --$(lowercase(plugin_name)) k2=v2). List values use bracket form (--$(lowercase(plugin_name)) \"key=[item1, item2]\"). Top-level commas are rejected."
                 ))
         end
     end

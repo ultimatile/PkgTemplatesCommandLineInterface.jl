@@ -21,15 +21,16 @@ Convert a single value token into the appropriate Julia type:
 - `"true"` / `"yes"` (case-insensitive) → `true`
 - `"false"` / `"no"` (case-insensitive) → `false`
 - `"[a, b, c]"` (bracket form) → `Vector{String}`, with surrounding quotes
-  on each item stripped
+  on each item stripped. **Bracket form is the only canonical list-value
+  syntax**; comma-separated unquoted strings are not promoted to arrays
+  (issue #5: top-level commas are reserved for the rejected
+  KEY=VALUE-separator anti-pattern).
 - `"123"` (digits only) → `Int`
 - Decimal-looking values (e.g. `"1.2"`, `"1.10"`) **stay strings**, since
   downstream plugins such as `ProjectFile` expect a string parsable as
   `VersionNumber` and Float coercion would drop trailing zeros.
 - An explicitly quoted string (`"..."` or `'...'`) has its quotes stripped
   and is returned as a single string, even if it contains commas.
-- An unquoted comma-separated value is auto-promoted to `Vector{String}`
-  for PkgTemplates.jl compatibility.
 - Any other input is returned as a String unchanged.
 """
 function parse_value(value_str::AbstractString)
@@ -52,14 +53,6 @@ function parse_value(value_str::AbstractString)
                      (startswith(s, '\'') && endswith(s, '\''))
         if was_quoted
             s = s[2:end-1]
-        end
-        # Auto-promote comma-separated values to arrays — but only when the
-        # user did NOT explicitly quote the value. Quotes signal "this is
-        # a literal string", so a value like `name="Doe, Jane"` must stay
-        # a single string instead of becoming ["Doe", "Jane"] (which would
-        # break String-typed fields like Git.name).
-        if !was_quoted && occursin(',', s)
-            return [String(strip(item)) for item in split(s, ',') if !isempty(strip(item))]
         end
         return s
     end
@@ -140,12 +133,13 @@ type coercion. This means `key=value` must remain a single token —
 whitespace around `=` (for example, `k= v` or `k =v`) will split the
 pair across tokens and will not be parsed as a single option.
 
-Throws `PluginOptionFormatError` for the comma-separated KEY=VALUE
-anti-pattern, in either shape:
-- `aqua=true,project=true` — comma + `=` in one unquoted value
-- `aqua=true, project=true` — trailing `,` in one value, the next token
-  carries `=` (i.e. the user typed comma + space and got a split that
-  hid the original pattern from a single-value check)
+Throws `PluginOptionFormatError` if the bundle contains any top-level
+comma — that is, a `,` that is not inside a `"..."` or `'...'` quoted
+substring or a `[...]` bracket. With list values restricted to bracket
+form (`ignore=[a, b, c]`), a top-level comma always signals the
+KEY=VALUE-separator anti-pattern (`a=1,b=2`) and is rejected uniformly
+regardless of the surrounding whitespace. Legitimate uses of `,`
+(quoted strings, bracket arrays) keep working unchanged.
 
 `plugin_flag`, when supplied, is the user-visible flag name (e.g.
 `"--git"`). It is woven into the canonical-form examples in the error
@@ -156,11 +150,9 @@ Returns an empty `Dict` for an empty input or a string with no `=` tokens.
 """
 function parse_kv_string(s::AbstractString;
                           plugin_flag::Union{String,Nothing}=nothing)::Dict{String,Any}
+    _reject_top_level_comma(s, plugin_flag)
     options = Dict{String,Any}()
-    parts = split_string(s)
-    n = length(parts)
-    for i in 1:n
-        part = parts[i]
+    for part in split_string(s)
         if contains(part, '=')
             k, v = split(part, '=', limit=2)
             key = String(strip(k))
@@ -168,123 +160,54 @@ function parse_kv_string(s::AbstractString;
             # plugin construction and TOML writes never see an empty
             # option name.
             if !isempty(key)
-                _reject_comma_in_key(key, part, plugin_flag)
-                stripped_v = String(strip(v))
-                next_part = i < n ? parts[i + 1] : ""
-                _reject_comma_separated_kv(key, stripped_v, next_part, plugin_flag)
-                options[key] = parse_value(stripped_v)
+                options[key] = parse_value(strip(v))
             end
         end
     end
     return options
 end
 
-# Reject a comma-separated KEY=VALUE list shape (the clig.dev anti-pattern).
-# Two shapes count:
-#   1. Single unquoted value contains both `,` and `=`
-#      (e.g. `aqua=true,project=true` arrives as one token)
-#   2. Value ends with `,` and the *next* token contains `=`
-#      (e.g. `aqua=true, project=true` is split into `["aqua=true,", "project=true"]`
-#      and neither half on its own would trigger shape #1)
-# Quoted values like `name="Doe, Jane"` and bracket arrays like
-# `ignore=[a,b]` are explicitly excluded because the comma is part of
-# the literal value, not a list-of-KV separator.
-function _reject_comma_separated_kv(key::AbstractString,
-                                     value::AbstractString,
-                                     next_part::AbstractString,
-                                     plugin_flag::Union{String,Nothing})
-    isempty(value) && return
-    quoted = (startswith(value, '"') && endswith(value, '"')) ||
-             (startswith(value, '\'') && endswith(value, '\''))
-    bracketed = startswith(value, '[') && endswith(value, ']')
-    quoted && return
-    bracketed && return
+# Reject any top-level comma in a plugin option bundle. "Top-level" means
+# outside any `"..."` / `'...'` quoted substring and outside any `[...]`
+# bracket. Detection mirrors `split_string`'s quote/bracket bookkeeping
+# (in particular: a `'` or `"` only opens a quoted block at the start of
+# a token, so apostrophes inside values like `name=O'Connor` are literal
+# and do not affect comma detection).
+function _reject_top_level_comma(s::AbstractString,
+                                  plugin_flag::Union{String,Nothing})
+    in_quotes = false
+    quote_char = '\0'
+    bracket_depth = 0
+    prev_char = '\0'
 
-    shape_inline = occursin(',', value) && occursin('=', value)
-    shape_split = endswith(value, ',') && contains(next_part, '=')
+    for c in s
+        at_token_start = prev_char == '\0' || isspace(prev_char) || prev_char == '='
 
-    if shape_inline || shape_split
-        # Reconstruct the comma-separated pieces so the suggestion uses
-        # exactly what the user typed. For shape_split the second piece
-        # comes from the next token (which already contains `=`).
-        raw_pieces = if shape_inline
-            [String(strip(p)) for p in split(value, ',')]
-        else
-            base = chopsuffix(value, ",")
-            String[String(strip(base)), String(strip(next_part))]
+        if c in ('"', '\'') && !in_quotes && bracket_depth == 0 && at_token_start
+            in_quotes = true
+            quote_char = c
+        elseif in_quotes && c == quote_char
+            in_quotes = false
+            quote_char = '\0'
+        elseif c == '[' && !in_quotes
+            bracket_depth += 1
+        elseif c == ']' && !in_quotes
+            bracket_depth = max(bracket_depth - 1, 0)
+        elseif c == ',' && !in_quotes && bracket_depth == 0
+            flag = something(plugin_flag, "--<plugin>")
+            msg = string(
+                "Plugin option bundle ", repr(String(s)),
+                " contains a top-level `,`, which is not supported. ",
+                "Use one of:\n",
+                "  multiple flags:  ", flag, " key1=val1 ", flag, " key2=val2\n",
+                "  one bundle:      ", flag, " \"key1=val1 key2=val2\"\n",
+                "  list value:      ", flag, " \"key=[item1, item2]\"",
+            )
+            throw(PluginOptionFormatError(msg))
         end
-        # Keep the first piece even if empty (the user typed `key=` with
-        # an empty value, and the suggestion must echo that). Drop later
-        # empties to avoid suggesting `--flag aqua= --flag --flag b=2`
-        # noise from inputs like `aqua=,,b=2`.
-        pieces = isempty(raw_pieces) ? String[""] : String[raw_pieces[1]]
-        for p in raw_pieces[2:end]
-            isempty(p) || push!(pieces, p)
-        end
-
-        flag = something(plugin_flag, "--<plugin>")
-        # Build the canonical replacement forms with the real flag name
-        # so users can copy/paste. The leading piece keeps its key (it
-        # came from the offending token); subsequent pieces already
-        # carry their own `key=value` syntax so we just emit them.
-        repeat_parts = ["$flag $key=$(pieces[1])"]
-        append!(repeat_parts, ["$flag $p" for p in pieces[2:end]])
-        repeat_form = join(repeat_parts, " ")
-        bundle_inner = join(vcat(["$key=$(pieces[1])"], pieces[2:end]), " ")
-        bundle_form = "$flag \"$bundle_inner\""
-
-        # For shape_split, what the user actually typed spanned both
-        # tokens (e.g. `aqua=true, project=true`). Show the reconstructed
-        # combined input so they can match it against their command,
-        # instead of just the partial RHS (`true,`) of the first token.
-        offending = if shape_split
-            string(value, " ", next_part)
-        else
-            value
-        end
-        # Construct the message without leading whitespace so handle_error
-        # paths display it cleanly.
-        msg = string(
-            "Plugin option value ", repr(offending), " for key ", repr(key),
-            " looks like a comma-separated list of KEY=VALUE pairs, ",
-            "which is not supported. Please use one of:\n",
-            "  ", repeat_form, "\n",
-            "  ", bundle_form,
-        )
-        throw(PluginOptionFormatError(msg))
+        prev_char = c
     end
     return
-end
-
-# Reject a key that contains `,` after stripping (e.g. `,project` from
-# the input `aqua=true ,project=true`). Legitimate plugin option keys
-# are bare identifiers; a comma in the key means the user used `,` as a
-# separator between KV pairs and `split_string` happened to break the
-# bundle in a way that put the comma at the start of the next token.
-# Same anti-pattern as the value-side detection, just whitespace placed
-# such that neither shape_inline nor shape_split fires.
-function _reject_comma_in_key(key::AbstractString,
-                                part::AbstractString,
-                                plugin_flag::Union{String,Nothing})
-    occursin(',', key) || return
-    flag = something(plugin_flag, "--<plugin>")
-    # Reconstruct the offending input from the raw token (which still
-    # carries the leading/internal comma) so the user sees what they
-    # typed. Strip the leading `,` and surrounding whitespace, then
-    # split on `,` to suggest canonical alternatives.
-    cleaned = strip(strip(part), ',')
-    pieces = filter(!isempty, String.(strip.(split(cleaned, ','))))
-    isempty(pieces) && (pieces = String[String(strip(part))])
-    repeat_form = join(["$flag $p" for p in pieces], " ")
-    bundle_form = "$flag \"" * join(pieces, " ") * "\""
-    msg = string(
-        "Plugin option key ", repr(String(key)),
-        " contains a comma, which suggests `,` was used as a separator ",
-        "between KEY=VALUE pairs. That form is not supported. Please use one of:\n",
-        "  ", repeat_form, "\n",
-        "  ", bundle_form,
-    )
-    throw(PluginOptionFormatError(msg))
 end
 
 end  # module PluginOptionParser

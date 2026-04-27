@@ -121,11 +121,14 @@ function instantiate_plugins(plugin_options::Dict{String,Dict{String,Any}})::Vec
                 end
             end
 
-            if k == "ignore" && v isa String
-                processed_options[k] = split(v, ',')
-            elseif k == "version" && v isa String
+            if k == "version" && v isa String
                 processed_options[k] = VersionNumber(v)
             else
+                # `ignore` and other Vector-typed plugin fields must arrive
+                # as Vector{String}: list values are bracket-form-only
+                # (`ignore=[.DS_Store, .vscode]`) per issue #5. A bare
+                # comma-string falls through to PluginType(; kwargs...)
+                # and surfaces a MethodError, which is the right outcome.
                 processed_options[k] = v
             end
         end

@@ -47,10 +47,16 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
             @test PluginOptionParser.parse_value("[\"a b\",c]") == ["a b", "c"]
         end
 
-        @testset "unquoted comma values promote to arrays" begin
-            @test PluginOptionParser.parse_value("a,b,c") == ["a", "b", "c"]
+        @testset "unquoted comma values stay strings (bracket form is canonical)" begin
+            # Issue #5: list values use bracket form only. A bare
+            # `a,b,c` is no longer auto-promoted; it stays the literal
+            # string. (`parse_kv_string` will refuse to call this with
+            # such a value at all — top-level commas are rejected up
+            # front — but the contract for parse_value alone remains
+            # well-defined.)
+            @test PluginOptionParser.parse_value("a,b,c") == "a,b,c"
             @test PluginOptionParser.parse_value(".DS_Store,.vscode") ==
-                  [".DS_Store", ".vscode"]
+                  ".DS_Store,.vscode"
         end
 
         @testset "quoted strings keep commas as literal text" begin
@@ -214,59 +220,12 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
                   Dict{String,Any}("k" => "v")
         end
 
-        # Issue #5 contract: comma-separated KEY=VALUE is the clig.dev
-        # anti-pattern that previously produced silent corruption (the
-        # second pair was promoted into a String[] under the first key).
-        # The parser must reject it with a friendly message, while still
-        # accepting legitimate uses of comma in values.
-        @testset "issue #5: comma-separated KEY=VALUE rejected" begin
-            # Shape A: comma + `=` collapsed into a single unquoted value.
-            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
-                "aqua=true,project=true",
-            )
-            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
-                "ssh=true,manifest=false",
-            )
-
-            # Shape B: comma + space-then-key. split_string breaks this
-            # into `["aqua=true,", "project=true"]`, so neither token in
-            # isolation has both `,` and `=` — the detection has to
-            # consider the trailing comma + next-token-with-`=` pair.
-            # Without this, the previous implementation silently produced
-            # `Dict("aqua" => ["true"], "project" => true)`.
-            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
-                "aqua=true, project=true",
-            )
-            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
-                "ssh=true,  manifest=false",
-            )
-
-            # Shape C: whitespace before the comma puts `,` at the start
-            # of the next token, so the key parses as `,project` and
-            # would be silently stored under that bogus name. Detect by
-            # rejecting any key that contains `,` after stripping.
-            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
-                "aqua=true ,project=true",
-            )
-
-            # Edge case: empty first value (`aqua=,project=true`) must
-            # not be rewritten into `aqua=project=true` in the
-            # canonical-form suggestion. The first piece — even when
-            # empty — represents the user's intent for that key.
-            err_empty = try
-                PluginOptionParser.parse_kv_string("aqua=,project=true";
-                                                    plugin_flag="--tests")
-                nothing
-            catch e
-                e
-            end
-            @test err_empty isa PluginOptionFormatError
-            @test occursin("aqua=", err_empty.message)
-            @test !occursin("aqua=project=true", err_empty.message)
-
-            # The error message must mention both the offending key/value
-            # and at least one canonical alternative so the user can fix
-            # their command without reading source.
+        # Issue #5 contract: any top-level comma in a plugin option
+        # bundle is the KV-separator anti-pattern (clig.dev) and must
+        # raise a friendly `PluginOptionFormatError`. Only commas inside
+        # a `"..."`/`'...'` quote or a `[...]` bracket are legitimate.
+        @testset "issue #5: error message names the input and a canonical form" begin
+            # Without a flag, the suggestion uses the `<plugin>` placeholder.
             err = try
                 PluginOptionParser.parse_kv_string("aqua=true,project=true")
                 nothing
@@ -274,13 +233,14 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
                 e
             end
             @test err isa PluginOptionFormatError
-            @test occursin("aqua", err.message)
-            @test occursin("true,project=true", err.message)
-            @test occursin("--", err.message)  # canonical form is a CLI flag
+            @test occursin("aqua=true,project=true", err.message)
+            @test occursin("--", err.message)
+            # The plain bundle and bracket-form list both appear in the
+            # canonical-form examples.
+            @test occursin("\"key1=val1 key2=val2\"", err.message)
+            @test occursin("[item1, item2]", err.message)
 
-            # When the caller knows the real flag, the message should use
-            # it instead of the `<plugin>` placeholder so the suggested
-            # canonical forms are copy-pasteable.
+            # When the caller knows the real flag, the suggestion uses it.
             err_with_flag = try
                 PluginOptionParser.parse_kv_string("aqua=true,project=true";
                                                     plugin_flag="--tests")
@@ -293,20 +253,46 @@ import PkgTemplatesCommandLineInterface.PluginOptionParser
             @test !occursin("<plugin>", err_with_flag.message)
         end
 
-        @testset "issue #5: legitimate comma uses keep working" begin
-            # Pure list value (no `=` in the value) — comma promotion
-            # still applies; this is the canonical way to pass an array.
-            @test PluginOptionParser.parse_kv_string("ignore=.DS_Store,.vscode") ==
-                  Dict{String,Any}("ignore" => [".DS_Store", ".vscode"])
+        @testset "issue #5: pure list value as bare comma string is now rejected" begin
+            # Previously `ignore=.DS_Store,.vscode` round-tripped as a
+            # Vector via the comma-promotion shortcut. With list values
+            # restricted to bracket form, this top-level comma is the
+            # KV-separator anti-pattern and must be rejected uniformly.
+            @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                "ignore=.DS_Store,.vscode",
+            )
+        end
 
+        @testset "issue #5: legitimate comma uses keep working" begin
             # Quoted comma — single literal string, not a list.
             @test PluginOptionParser.parse_kv_string("name=\"Doe, Jane\"") ==
                   Dict{String,Any}("name" => "Doe, Jane")
 
+            # Bracket array — the only canonical list-value syntax.
+            @test PluginOptionParser.parse_kv_string("ignore=[.DS_Store, .vscode]") ==
+                  Dict{String,Any}("ignore" => [".DS_Store", ".vscode"])
+
             # Bracket array containing `=`-looking text inside an item.
-            # The value starts with `[`, so the comma-KV check skips it.
+            # The comma is inside the bracket, so the top-level scan
+            # leaves it alone.
             @test PluginOptionParser.parse_kv_string("items=[a=1, b=2]") ==
                   Dict{String,Any}("items" => ["a=1", "b=2"])
+        end
+
+        @testset "issue #5: every whitespace variant of comma-KV rejected uniformly" begin
+            # The unified top-level-comma rule must catch all four shapes
+            # discovered during the review-pipeline (which previously
+            # required four separate checks).
+            for malformed in (
+                "aqua=true,project=true",     # no whitespace
+                "aqua=true, project=true",    # space after comma
+                "aqua=true ,project=true",    # space before comma
+                "aqua=true , project=true",   # space on both sides
+            )
+                @test_throws PluginOptionFormatError PluginOptionParser.parse_kv_string(
+                    malformed,
+                )
+            end
         end
     end
 end
