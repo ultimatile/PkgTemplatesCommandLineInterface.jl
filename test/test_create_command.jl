@@ -440,5 +440,96 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             @test occursin("version = 1.10", out)
             @test !occursin("version = 1.1\n", out)
         end
+
+        # Issue #5 contract: repeat-flag is the canonical multi-value form
+        # (POSIX/GNU/clig.dev convention; matches docker/kubectl/podman).
+        # Comma-separated KEY=VALUE is the anti-pattern that must error.
+        @testset "issue #5: repeat flag merges into a single plugin section" begin
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true",
+                 "--git", "manifest=false"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            @test occursin("ssh = true", out)
+            @test occursin("manifest = false", out)
+        end
+
+        @testset "issue #5: repeat flag last-wins on duplicate key" begin
+            # Final invocation should win for a re-set key, matching the
+            # docker `-e KEY=...` aggregation semantics.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true",
+                 "--git", "ssh=false"],
+            )
+            @test result.success == true
+            @test occursin("ssh = false", out)
+            @test !occursin("ssh = true", out)
+        end
+
+        @testset "issue #5: bare flag combined with KV repeat" begin
+            # `--git --git ssh=true` should enable Git *and* set ssh=true
+            # — the bare invocation is a no-op once a value-bearing one
+            # is present.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git",
+                 "--git", "ssh=true"],
+            )
+            @test result.success == true
+            @test occursin("Plugin: Git", out)
+            @test occursin("ssh = true", out)
+        end
+
+        @testset "issue #5: repeat-flag and quoted bundle produce the same Dict" begin
+            # Cross-form equivalence: the same intent expressed two ways
+            # must reach PackageGenerator with the same plugin options.
+            # We extract the Plugin: Git block of each run and compare
+            # the parsed key=value pairs as a Set so the test is robust
+            # against Dict iteration order (which is not stable across
+            # Julia sessions for the printed dry-run plan).
+            _, out_repeat = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true",
+                 "--git", "manifest=false"],
+            )
+            _, out_bundle = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--git", "ssh=true manifest=false"],
+            )
+
+            function _git_section_pairs(s::AbstractString)
+                m = match(r"Plugin: Git\n((?:    [^\n]*\n)*)", s)
+                m === nothing && return Set{String}()
+                # Each line in the block is "    key = value"; strip
+                # the leading indent and collect into a Set so order
+                # does not affect equality.
+                lines = split(rstrip(m.captures[1], '\n'), '\n')
+                return Set(strip.(lines))
+            end
+
+            pairs_repeat = _git_section_pairs(out_repeat)
+            pairs_bundle = _git_section_pairs(out_bundle)
+            @test !isempty(pairs_repeat)
+            @test pairs_repeat == pairs_bundle
+        end
+
+        @testset "issue #5: comma-separated KEY=VALUE produces friendly error" begin
+            # `--tests "aqua=true,project=true"` previously corrupted into
+            # `Tests.aqua = ["true", "project=true"]`. Now it must surface
+            # as a CLI error that names the canonical replacement forms.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--tests", "aqua=true,project=true"],
+            )
+            @test result.success == false
+            # The CommandResult message bubbles up the JTCError message;
+            # it should mention the offending value and a canonical form.
+            @test occursin("aqua", result.message)
+            @test occursin("true,project=true", result.message)
+            @test occursin("--", result.message)
+        end
     end
 end

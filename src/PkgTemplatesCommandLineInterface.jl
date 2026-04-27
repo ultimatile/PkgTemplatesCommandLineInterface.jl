@@ -7,6 +7,7 @@ export PackageGenerationError
 export ConfigurationError
 export TemplateGenerationError
 export PluginNotFoundError
+export PluginOptionFormatError
 
 # Export common data structures
 export CommandResult

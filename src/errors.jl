@@ -138,3 +138,31 @@ function Base.showerror(io::IO, e::PluginNotFoundError)
         print(io, "\nAvailable plugins: ", join(e.available_plugins, ", "))
     end
 end
+
+"""
+    PluginOptionFormatError <: JTCError
+
+Error indicating a plugin option was supplied in an unsupported form
+(currently: comma-separated `KEY=VALUE` pairs, which clig.dev flags as
+an anti-pattern because values may legitimately contain commas).
+
+# Fields
+- `message::String`: Description of the format violation, including the
+  offending value and the canonical replacement forms.
+
+# Example
+```julia
+throw(PluginOptionFormatError(
+    "Plugin option value \"true,project=true\" looks like a comma-separated " *
+    "list of KEY=VALUE pairs, which is not supported. Please use one of:\n" *
+    "  --tests aqua=true --tests project=true\n" *
+    "  --tests \"aqua=true project=true\""
+))
+```
+"""
+struct PluginOptionFormatError <: JTCError
+    message::String
+end
+
+Base.showerror(io::IO, e::PluginOptionFormatError) =
+    print(io, "PluginOptionFormatError: ", e.message)

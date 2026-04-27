@@ -498,5 +498,54 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
                 rm(test_dir; recursive=true, force=true)
             end
         end
+
+        # Issue #5 contract: repeat-flag is the canonical multi-value form
+        # on the config-set side as well. ArgParse delivers repeated
+        # `--<plugin>` invocations as a Vector under the lowercase key.
+        @testset "issue #5: repeat-flag persists merged plugin section" begin
+            test_dir = mktempdir()
+            original_xdg = get(ENV, "XDG_CONFIG_HOME", nothing)
+            try
+                ENV["XDG_CONFIG_HOME"] = test_dir
+                args = Dict{String,Any}(
+                    "%SUBCOMMAND%" => "set",
+                    "git" => Any["ssh=true", "manifest=false"],
+                )
+                @test ConfigCommand.execute(args).success == true
+                cfg = ConfigCommand.ConfigManager.load_config()
+                @test cfg["default"]["Git"]["ssh"] == true
+                @test cfg["default"]["Git"]["manifest"] == false
+            finally
+                if original_xdg === nothing
+                    delete!(ENV, "XDG_CONFIG_HOME")
+                else
+                    ENV["XDG_CONFIG_HOME"] = original_xdg
+                end
+                rm(test_dir; recursive=true, force=true)
+            end
+        end
+
+        @testset "issue #5: comma-separated plugin KV is rejected" begin
+            test_dir = mktempdir()
+            original_xdg = get(ENV, "XDG_CONFIG_HOME", nothing)
+            try
+                ENV["XDG_CONFIG_HOME"] = test_dir
+                args = Dict{String,Any}(
+                    "%SUBCOMMAND%" => "set",
+                    "tests" => Any["aqua=true,project=true"],
+                )
+                result = ConfigCommand.execute(args)
+                @test result.success == false
+                @test occursin("aqua", result.message)
+                @test occursin("true,project=true", result.message)
+            finally
+                if original_xdg === nothing
+                    delete!(ENV, "XDG_CONFIG_HOME")
+                else
+                    ENV["XDG_CONFIG_HOME"] = original_xdg
+                end
+                rm(test_dir; recursive=true, force=true)
+            end
+        end
     end
 end

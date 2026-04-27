@@ -9,7 +9,7 @@ Implements the `create` command execution logic, including:
 """
 module CreateCommand
 
-using ..PkgTemplatesCommandLineInterface: CommandResult, PackageGenerationError
+using ..PkgTemplatesCommandLineInterface: CommandResult, JTCError, PackageGenerationError
 import ..ConfigManager
 import ..PackageGenerator
 import ..PluginDiscovery
@@ -33,8 +33,17 @@ function merge_config(config_defaults::Dict, cli_args::Dict)::Dict
         if haskey(merged, key) && value isa Dict && merged[key] isa Dict
             # Nested configuration merge
             merged[key] = merge(merged[key], value)
-        elseif value !== nothing
-            # CLI argument overrides config (only if not nothing)
+        elseif value === nothing
+            continue
+        elseif value isa AbstractVector && isempty(value)
+            # ArgParse `:append_arg` returns `Any[]` for every flag the
+            # user did not supply (regardless of `:default => nothing`).
+            # Treat that shape like `nothing` so absent plugin flags do
+            # not leak into the dry-run plan as misleading `Any[]` lines
+            # under Merged options.
+            continue
+        else
+            # CLI argument overrides config
             merged[key] = value
         end
     end
@@ -50,14 +59,18 @@ Translate CLI plugin options from `args` into the
 `PackageGenerator.create_package` consumes.
 
 ArgParse stores plugin option keys as the lowercase plugin name (no `--`
-prefix). With the unified `nargs='?', constant="", default=nothing`
+prefix). With the `:append_arg, nargs='?', constant="", default=nothing`
 registration, the value is one of:
-- `nothing`           → `--<plugin>` not supplied; skip.
-- `""`                → `--<plugin>` supplied without a value; enable
-  the plugin with default options (empty section).
-- `"k1=v1 k2=v2 ..."` → `--<plugin> "..."`; route through
-  `PluginOptionParser.parse_kv_string` so quoted strings, bracket arrays,
-  and version-like values parse identically to the `config set` path.
+- `nothing`            → `--<plugin>` not supplied; skip.
+- empty `AbstractVector` (typically `Any[]`) → `--<plugin>` not supplied
+  under the `:append_arg` default; skip. ArgParse picks the element type
+  at runtime and we do not depend on it being `String`.
+- non-empty `AbstractVector` → one element per `--<plugin>` invocation.
+  Each element is `""` (bare flag → use defaults) or a `"k=v ..."`
+  bundle. Elements are merged left-to-right with last-wins on duplicate
+  keys, matching POSIX/GNU/clig.dev convention for repeat-flag aggregation.
+- `String`             → legacy direct-call shape kept so tests / direct
+  callers can still pass a single bundle. Equivalent to a 1-element vector.
 
 Output keys are canonicalised against `PluginDiscovery.canonical_names()`
 so PkgTemplates plugin types resolve via `getfield(PkgTemplates, Symbol(...))`.
@@ -69,13 +82,23 @@ function parse_plugin_options(args::Dict)::Dict{String, Dict{String, Any}}
     for (lower_name, canonical_name) in canonical
         haskey(args, lower_name) || continue
         value = args[lower_name]
+        flag = "--$lower_name"
 
         if value === nothing
             continue
         elseif value isa AbstractString
             section = isempty(value) ?
                 Dict{String, Any}() :
-                PluginOptionParser.parse_kv_string(value)
+                PluginOptionParser.parse_kv_string(value; plugin_flag=flag)
+            plugin_options[canonical_name] = section
+        elseif value isa AbstractVector
+            isempty(value) && continue
+            section = Dict{String, Any}()
+            for elem in value
+                elem isa AbstractString || continue
+                isempty(elem) && continue
+                merge!(section, PluginOptionParser.parse_kv_string(elem; plugin_flag=flag))
+            end
             plugin_options[canonical_name] = section
         end
     end
@@ -247,12 +270,22 @@ end
     handle_error(e::Exception)::CommandResult
 
 Convert exceptions to user-friendly CommandResult.
+
+`JTCError` subtypes carry a curated `message` field that is already
+written for the user; surface it directly so we do not double-prefix
+the error type or wrap the message in noise like
+`Error: PluginOptionFormatError:`.
 """
 function handle_error(e::Exception)::CommandResult
     if e isa PackageGenerationError
         return CommandResult(
             success=false,
             message="Package generation failed: $(e.message)"
+        )
+    elseif e isa JTCError
+        return CommandResult(
+            success=false,
+            message=e.message
         )
     else
         return CommandResult(
