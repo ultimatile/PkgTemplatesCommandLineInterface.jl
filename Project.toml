@@ -1,6 +1,6 @@
 name = "PkgTemplatesCommandLineInterface"
 uuid = "b8670afd-c0a1-4d96-acf7-d645be7ab2db"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["ultimatile <ultimatile@users.noreply.github.com>"]
 
 [deps]
