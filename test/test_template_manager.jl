@@ -38,6 +38,14 @@ const TemplateManager = PkgTemplatesCommandLineInterface.TemplateManager
                     @test occursin("[tasks.test]", content)
                     @test occursin("[tasks.build]", content)
                     @test occursin("[tasks.dev]", content)
+
+                    # JULIA_PROJECT must point at the local package, not the
+                    # default shared environment. `@` (alone) is interpreted as
+                    # an empty-named shared env and would route Pkg.add/rm to
+                    # ~/.julia/environments/v1.x rather than the package being
+                    # generated.
+                    @test occursin("JULIA_PROJECT = \".\"", content)
+                    @test !occursin("JULIA_PROJECT = \"@\"", content)
                 end
             end
         end
