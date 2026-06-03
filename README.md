@@ -83,6 +83,22 @@ jtc config set --author "Your Name" --user yourgithubuser
 2. Configuration file defaults
 3. Built-in defaults (lowest priority)
 
+### Plugin options and secrets
+
+Plugin fields are passed through to PkgTemplates.jl as `key=value` pairs, e.g.
+`jtc create MyPackage --tagbot 'token=GITHUB_TOKEN'`.
+
+Fields typed as a *secret* (such as `TagBot.token` or `TagBot.ssh`) expect the
+**name** of a GitHub Actions secret — **not the secret value itself**.
+PkgTemplates.jl renders the name into the workflow as `${{ secrets.NAME }}`, so
+a conventional value is an identifier like `DOCUMENTER_KEY` or `GITHUB_TOKEN`.
+
+If you accidentally pass a literal credential, jtc warns and avoids echoing it
+in command output and `--dry-run` plans. The literal would still be written to
+your config file in plaintext, so remove it and use the secret's name instead.
+The config file and its directory are created with owner-only permissions
+(`0600` / `0700`) on POSIX systems.
+
 ## Troubleshooting
 
 ### `No such file or directory` error after Julia update
