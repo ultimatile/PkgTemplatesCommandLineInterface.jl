@@ -126,6 +126,31 @@ include("../src/config_manager.jl")
                 @test saved_config["default"]["user"] == "testuser"
             end
 
+            @testset "save_config() restricts file/dir to owner-only (POSIX)" begin
+                # The config may hold secret names — and, on user mistake,
+                # literal credentials — so it is locked to the owner. chmod is
+                # best-effort on Windows (read-only bit only), so assert only on
+                # POSIX where the permission bits are meaningful. Self-contained
+                # temp XDG home so it does not clobber the shared config file
+                # the sibling load_config tests depend on.
+                if !Sys.iswindows()
+                    perm_dir = mktempdir()
+                    saved_xdg = ENV["XDG_CONFIG_HOME"]
+                    try
+                        ENV["XDG_CONFIG_HOME"] = perm_dir
+                        ConfigManager.save_config(Dict{String,Any}(
+                            "default" => Dict{String,Any}("user" => "u"),
+                        ))
+                        config_path = ConfigManager.get_config_path()
+                        @test filemode(config_path) & 0o777 == 0o600
+                        @test filemode(dirname(config_path)) & 0o777 == 0o700
+                    finally
+                        ENV["XDG_CONFIG_HOME"] = saved_xdg
+                        rm(perm_dir; recursive=true, force=true)
+                    end
+                end
+            end
+
             @testset "load_config() reads existing file" begin
                 # Config file was created in previous test
                 loaded_config = ConfigManager.load_config()
