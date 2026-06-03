@@ -272,4 +272,34 @@ include("../src/plugin_discovery.jl")
             @test length(details.fields) == length(fieldnames(PkgTemplates.Git))
         end
     end
+
+    @testset "is_secret_field()" begin
+        # TagBot.token / TagBot.ssh are Secret-typed (render as ${{ secrets.X }}).
+        @test PluginDiscovery.is_secret_field("TagBot", "token")
+        @test PluginDiscovery.is_secret_field("TagBot", "ssh")
+        # Plain fields are not.
+        @test !PluginDiscovery.is_secret_field("License", "name")
+        @test !PluginDiscovery.is_secret_field("Git", "ssh")
+        # Unknown plugin / field degrade to false rather than throwing.
+        @test !PluginDiscovery.is_secret_field("NoSuchPlugin", "token")
+        @test !PluginDiscovery.is_secret_field("TagBot", "no_such_field")
+    end
+
+    @testset "looks_like_secret_value()" begin
+        # Conventional secret *names* must not trip the heuristic.
+        @test !PluginDiscovery.looks_like_secret_value("DOCUMENTER_KEY")
+        @test !PluginDiscovery.looks_like_secret_value("GITHUB_TOKEN")
+        @test !PluginDiscovery.looks_like_secret_value("")
+        # Known credential prefixes are flagged regardless of length.
+        @test PluginDiscovery.looks_like_secret_value("ghp_0123456789abcdef")
+        @test PluginDiscovery.looks_like_secret_value("github_pat_11ABCDEFG")
+        @test PluginDiscovery.looks_like_secret_value("-----BEGIN OPENSSH PRIVATE KEY-----")
+        # Generic high-entropy blob (>=32, mixed letters+digits, no whitespace).
+        @test PluginDiscovery.looks_like_secret_value("a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7")
+        # Long but digit-free identifier is treated as a name, not a value.
+        @test !PluginDiscovery.looks_like_secret_value("A_VERY_LONG_DESCRIPTIVE_SECRET_NAME")
+        # Non-strings are never secret-shaped.
+        @test !PluginDiscovery.looks_like_secret_value(true)
+        @test !PluginDiscovery.looks_like_secret_value(42)
+    end
 end

@@ -225,7 +225,19 @@ function _apply_set_args(config::Dict{String,Any}, sub_args::Dict{String,Any})
             else
                 for (opt_key, opt_val) in PluginOptionParser.parse_kv_string(elem; plugin_flag=flag)
                     section[opt_key] = opt_val
-                    push!(messages, "Set default $plugin_name.$opt_key: $(repr(opt_val))")
+                    # A Secret field (e.g. TagBot.token) expects the *name* of a
+                    # GitHub Actions secret, not the credential itself. If the
+                    # value looks like a literal, warn — and never echo it back
+                    # to stdout, since `config set` output is easily logged.
+                    looks_secret = PluginDiscovery.looks_like_secret_value(opt_val)
+                    if looks_secret && PluginDiscovery.is_secret_field(plugin_name, opt_key)
+                        @warn "$plugin_name.$opt_key looks like a literal secret. " *
+                              "Secret fields expect the NAME of a GitHub Actions " *
+                              "secret (e.g. DOCUMENTER_KEY), not its value; the " *
+                              "value is stored in plaintext in your config."
+                    end
+                    shown = looks_secret ? "<redacted>" : repr(opt_val)
+                    push!(messages, "Set default $plugin_name.$opt_key: $shown")
                     any_value_set = true
                 end
             end

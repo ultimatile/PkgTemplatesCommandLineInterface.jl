@@ -250,16 +250,28 @@ function show_dry_run_plan(
     println()
     println("Package name: $package_name")
     println()
+    # Plugin raw args (keyed by lowercase plugin name) are rendered — and
+    # redacted — under "Plugin options" below. Skip them in the merged dump to
+    # avoid both duplication and leaking an unparsed `token=ghp_...` bundle that
+    # the scalar redaction below would not mask.
+    canonical = PluginDiscovery.canonical_names()
     println("Merged options:")
     for (key, value) in merged_options
-        println("  $key = $value")
+        haskey(canonical, lowercase(String(key))) && continue
+        shown = PluginDiscovery.looks_like_secret_value(value) ? "<redacted>" : value
+        println("  $key = $shown")
     end
     println()
     println("Plugin options:")
     for (plugin, options) in plugin_options
         println("  Plugin: $plugin")
         for (key, value) in options
-            println("    $key = $value")
+            # Redact anything that looks like a literal credential: dry-run
+            # output is routinely pasted into issues and CI logs. Secret-named
+            # fields legitimately hold a short secret *name*, which is not
+            # sensitive and stays visible.
+            shown = PluginDiscovery.looks_like_secret_value(value) ? "<redacted>" : value
+            println("    $key = $shown")
         end
     end
 
