@@ -182,4 +182,63 @@ function get_plugin_details(plugin_name::String)::PluginDetails
     )
 end
 
+"""
+    is_secret_field(plugin_name::AbstractString, key::AbstractString)::Bool
+
+Report whether `plugin_name`'s field `key` is typed to hold a
+`PkgTemplates.Secret` (e.g. `TagBot.token`, `TagBot.ssh`).
+
+A `Secret` field expects the *name* of a GitHub Actions secret, never the
+literal credential — PkgTemplates renders it as `\${{ secrets.NAME }}`. This
+predicate lets the CLI single out those fields so it can warn on, or redact,
+values that were mistakenly supplied as literals.
+
+Unlike the Secret-wrapping check in `PackageGenerator.instantiate_plugins`,
+this intentionally does not also require `!(String <: ftype)`: a field that
+accepts either a `String` or a `Secret` is still sensitive enough to flag.
+
+Returns `false` for unknown plugins or fields so callers can treat the result
+as a pure hint without guarding against plugin-discovery failures.
+"""
+function is_secret_field(plugin_name::AbstractString, key::AbstractString)::Bool
+    PluginType = try
+        getfield(PkgTemplates, Symbol(plugin_name))
+    catch e
+        e isa InterruptException && rethrow(e)
+        return false
+    end
+    (PluginType isa Type && PluginType <: PkgTemplates.Plugin) || return false
+    sym = Symbol(key)
+    sym in fieldnames(PluginType) || return false
+    return PkgTemplates.Secret <: fieldtype(PluginType, sym)
+end
+
+"""
+    looks_like_secret_value(value)::Bool
+
+Heuristically decide whether `value` looks like a *literal* credential rather
+than the secret *name* a `Secret` field expects.
+
+True for well-known credential prefixes (GitHub tokens, PEM/OpenSSH key
+headers) and for generic high-entropy blobs (length ≥ 32 with mixed letters
+and digits and no whitespace). A conventional secret name such as
+`DOCUMENTER_KEY` or `GITHUB_TOKEN` is short and digit-free, so it does not
+trip the generic branch — keeping false positives low.
+
+This is a guardrail, not a guarantee: it powers warnings and dry-run redaction,
+never a hard refusal, so occasional misses are acceptable.
+"""
+function looks_like_secret_value(value)::Bool
+    value isa AbstractString || return false
+    s = String(value)
+    for p in ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_")
+        startswith(s, p) && return true
+    end
+    startswith(s, "-----BEGIN") && return true  # PEM / OpenSSH private key blob
+    # Generic high-entropy blob: long, no whitespace, mixed letters and digits.
+    length(s) >= 32 || return false
+    occursin(r"\s", s) && return false
+    return occursin(r"[A-Za-z]", s) && occursin(r"[0-9]", s)
+end
+
 end  # module PluginDiscovery

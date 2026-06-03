@@ -55,6 +55,16 @@ function get_config_path(custom_path::Union{String,Nothing}=nothing)::String
     # Create directory if it doesn't exist
     mkpath(app_config_dir)
 
+    # The config may persist secret *names* (and, by user mistake, secret
+    # values). Lock the directory to the owner so co-located users on a shared
+    # host cannot read it. Idempotent; best-effort on platforms where chmod
+    # only toggles the read-only bit (e.g. Windows).
+    try
+        chmod(app_config_dir, 0o700)
+    catch e
+        e isa InterruptException && rethrow(e)
+    end
+
     return joinpath(app_config_dir, "config.toml")
 end
 
@@ -119,6 +129,16 @@ function save_config(config::Dict{String,Any}, custom_path::Union{String,Nothing
     open(config_path, "w") do io
         # sorted=true ensures stable output order for easier testing and diffs
         TOML.print(io, config, sorted=true)
+    end
+
+    # Restrict the file to owner read/write: it may hold secret names and, when
+    # a user misunderstands a Secret field, literal credentials. Applied after
+    # write, so a brief umask-dependent window exists — acceptable for a
+    # single-user dotfile. Best-effort: chmod is a no-op-ish on Windows.
+    try
+        chmod(config_path, 0o600)
+    catch e
+        e isa InterruptException && rethrow(e)
     end
 
     @info "Configuration saved to $config_path"

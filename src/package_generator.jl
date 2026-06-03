@@ -9,6 +9,7 @@ module PackageGenerator
 
 using PkgTemplates
 using ..PkgTemplatesCommandLineInterface: PackageGenerationError
+import ..PluginDiscovery
 
 export create_package, instantiate_plugins
 
@@ -116,6 +117,14 @@ function instantiate_plugins(plugin_options::Dict{String,Dict{String,Any}})::Vec
             if v isa AbstractString && sym in plugin_fields
                 ftype = fieldtype(PluginType, sym)
                 if PkgTemplates.Secret <: ftype && !(String <: ftype)
+                    # Secret fields render as `${{ secrets.NAME }}`, so the value
+                    # must be a secret *name*. A literal-looking value is almost
+                    # certainly a user mistake; warn before wrapping it.
+                    if PluginDiscovery.looks_like_secret_value(v)
+                        @warn "$plugin_name.$k looks like a literal secret. " *
+                              "Secret fields expect the NAME of a GitHub Actions " *
+                              "secret (e.g. DOCUMENTER_KEY), not its value."
+                    end
                     processed_options[k] = PkgTemplates.Secret(String(v))
                     continue
                 end

@@ -547,5 +547,26 @@ using PkgTemplatesCommandLineInterface.ConfigCommand
                 rm(test_dir; recursive=true, force=true)
             end
         end
+
+        @testset "literal-looking secret is redacted in set output" begin
+            # A literal credential to a Secret field is still stored (we cannot
+            # second-guess the user), but must not be echoed back to stdout.
+            config, msgs = ConfigCommand._apply_set_args(
+                Dict{String,Any}(),
+                Dict{String,Any}("tagbot" => Any["token=ghp_0123456789abcdefghij"]),
+            )
+            @test config["default"]["TagBot"]["token"] == "ghp_0123456789abcdefghij"
+            @test any(m -> occursin("<redacted>", m), msgs)
+            @test !any(m -> occursin("ghp_0123456789", m), msgs)
+        end
+
+        @testset "secret name is shown verbatim in set output" begin
+            _, msgs = ConfigCommand._apply_set_args(
+                Dict{String,Any}(),
+                Dict{String,Any}("tagbot" => Any["token=GITHUB_TOKEN"]),
+            )
+            @test any(m -> occursin("GITHUB_TOKEN", m), msgs)
+            @test !any(m -> occursin("<redacted>", m), msgs)
+        end
     end
 end

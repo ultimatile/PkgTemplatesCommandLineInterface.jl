@@ -339,6 +339,25 @@ import PkgTemplatesCommandLineInterface.CreateCommand
             @test occursin("Plugin: Readme", out)
         end
 
+        @testset "dry-run redacts a literal-looking secret value" begin
+            # A secret *name* (token=GITHUB_TOKEN) stays visible; a literal
+            # credential is masked so it never lands in pasted dry-run output.
+            result, out = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--tagbot", "token=GITHUB_TOKEN"],
+            )
+            @test result.success == true
+            @test occursin("token = GITHUB_TOKEN", out)
+
+            result2, out2 = _e2e_dry_run(
+                ["create", "E2EPkg", "--user", "u",
+                 "--tagbot", "token=ghp_0123456789abcdefghij"],
+            )
+            @test result2.success == true
+            @test occursin("token = <redacted>", out2)
+            @test !occursin("ghp_0123456789abcdefghij", out2)
+        end
+
         @testset "--license overrides config license_type via CLI path" begin
             # Seed config with license_type=MIT, then assert CLI --license wins.
             config_dir = mktempdir()
